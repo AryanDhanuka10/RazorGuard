@@ -1,0 +1,74 @@
+{
+  "best": {
+    "min_members": 2,
+    "min_concentration": 0.3,
+    "num_clusters": 3425,
+    "num_relevant": 65,
+    "precision_at_20": 1.0
+  },
+  "all_sweep_results": [
+    {
+      "min_members": 2,
+      "min_concentration": 0.3,
+      "num_clusters": 3425,
+      "num_relevant": 65,
+      "precision_at_20": 1.0
+    },
+    {
+      "min_members": 2,
+      "min_concentration": 0.5,
+      "num_clusters": 3425,
+      "num_relevant": 65,
+      "precision_at_20": 1.0
+    },
+    {
+      "min_members": 2,
+      "min_concentration": 0.7,
+      "num_clusters": 3425,
+      "num_relevant": 65,
+      "precision_at_20": 1.0
+    },
+    {
+      "min_members": 3,
+      "min_concentration": 0.3,
+      "num_clusters": 1246,
+      "num_relevant": 21,
+      "precision_at_20": 1.0
+    },
+    {
+      "min_members": 3,
+      "min_concentration": 0.5,
+      "num_clusters": 1246,
+      "num_relevant": 21,
+      "precision_at_20": 1.0
+    },
+    {
+      "min_members": 3,
+      "min_concentration": 0.7,
+      "num_clusters": 1246,
+      "num_relevant": 21,
+      "precision_at_20": 1.0
+    },
+    {
+      "min_members": 4,
+      "min_concentration": 0.3,
+      "num_clusters": 74,
+      "num_relevant": 3,
+      "precision_at_20": 0.15
+    },
+    {
+      "min_members": 4,
+      "min_concentration": 0.5,
+      "num_clusters": 74,
+      "num_relevant": 3,
+      "precision_at_20": 0.15
+    },
+    {
+      "min_members": 4,
+      "min_concentration": 0.7,
+      "num_clusters": 74,
+      "num_relevant": 3,
+      "precision_at_20": 0.15
+    }
+  ]
+}

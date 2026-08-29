@@ -1,0 +1,31 @@
+{
+  "hybrid_final": {
+    "precision_at_k": 0.6,
+    "recall_at_k": 0.03571428571428571,
+    "k": 20,
+    "lift_over_baseline_a": 2.0,
+    "lift_over_baseline_b": 0.6
+  },
+  "baseline_a_value": {
+    "precision_at_k": 0.3,
+    "recall_at_k": 0.017857142857142856,
+    "k": 20
+  },
+  "baseline_b_max_risk": {
+    "precision_at_k": 1.0,
+    "recall_at_k": 0.05952380952380952,
+    "k": 20
+  },
+  "baseline_c_structural": {
+    "precision_at_k": 0.4,
+    "recall_at_k": 0.023809523809523808,
+    "k": 20
+  },
+  "_meta": {
+    "num_relevant_clusters": 336,
+    "num_total_clusters": 3425,
+    "proxy_min_fraud_txn_count": 1,
+    "proxy_min_concentration": 0.3,
+    "label_type": "Layer B1 (derived proxy from transaction-level labels) \u2014 NOT ring ground truth"
+  }
+}

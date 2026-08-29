@@ -1,0 +1,32 @@
+{
+  "relationship_concentration_up": {
+    "top_k_overlap_fraction": 1.0
+  },
+  "relationship_concentration_down": {
+    "top_k_overlap_fraction": 0.95
+  },
+  "transaction_risk_up": {
+    "top_k_overlap_fraction": 0.85
+  },
+  "transaction_risk_down": {
+    "top_k_overlap_fraction": 0.8
+  },
+  "temporal_coordination_up": {
+    "top_k_overlap_fraction": 0.95
+  },
+  "temporal_coordination_down": {
+    "top_k_overlap_fraction": 1.0
+  },
+  "structural_anomaly_up": {
+    "top_k_overlap_fraction": 1.0
+  },
+  "structural_anomaly_down": {
+    "top_k_overlap_fraction": 1.0
+  },
+  "exposure_up": {
+    "top_k_overlap_fraction": 0.85
+  },
+  "exposure_down": {
+    "top_k_overlap_fraction": 0.85
+  }
+}

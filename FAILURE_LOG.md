@@ -529,3 +529,66 @@ Before fix: `extract_all_raw_signals(rep)` -> 11,498,825 signals, 1.83GB RSS, pr
 
 ---
 
+## Parquet column-load memory spike during batch inference
+
+**Day/date:** Day 3, 2026-08-29
+
+**Area:** Infrastructure (memory) / ML
+
+### Problem
+Scoring all 590,540 transactions with the trained XGBoost model (needed to aggregate a mean risk score per pseudo-entity for cluster scoring) was OOM-killed even after loading only the 369 needed feature columns via `pd.read_parquet(path, columns=[...])` — the same pattern that fixed earlier OOMs.
+
+### Why It Happened
+`df.memory_usage(deep=True)` on the loaded, column-limited DataFrame reported only ~872MB, but actual process RSS measured with `psutil` right after the same load was ~2.7GB. Reading a parquet file via pandas/pyarrow holds an intermediate Arrow table in memory during decompression and type conversion, on top of the final pandas DataFrame — for this file's size, that transient overhead was roughly 3x the settled DataFrame size, leaving too little headroom for the feature array + XGBoost's own prediction buffers on top.
+
+### What Was Tried
+Column-limiting alone (the fix that worked for two earlier OOMs) was applied first and was insufficient here — confirmed by measuring actual RSS with `psutil.Process().memory_info().rss` immediately after the load, rather than trusting `df.memory_usage()`, which does not capture the parquet-read transient.
+
+### What Finally Worked
+Switched to streaming the parquet file in row-group batches via `pyarrow.parquet.ParquetFile.iter_batches(batch_size=50000, columns=[...])`, converting and predicting one batch at a time so the full dataset is never held as one in-memory table. Peak memory stayed bounded to one batch's worth of data plus the model.
+
+### What Changed in the System
+Batch inference is now the standard pattern for scoring the full dataset with the trained model — kept in the working script for Day 3's cluster-scoring step. No change to the model, its training, or Layer A results.
+
+### Guardrail / Evaluation Check
+No change to any modeling or evaluation logic — purely a memory-handling fix for applying an already-trained, already-evaluated model at full-dataset scale.
+
+### Evidence
+`df.memory_usage(deep=True)`: 871.6MB. Actual RSS via `psutil` immediately after the same load: 2699.1MB. Batched streaming approach completed successfully across 12 batches of 50,000 rows each, producing risk scores for all 248,038 pseudo-entities (mean 0.183, consistent with the ~3.5% base fraud rate and the model's known false-positive behavior from Layer A).
+
+**Commit:** `fix: stream parquet in row-group batches for full-dataset inference to fix OOM`
+
+**Issue/PR:** (none — single-session fix during Day 3 verification)
+
+---
+
+## temporal_coordination compresses to near-zero under min-max scaling (documented limitation, not fixed)
+
+**Day/date:** Day 3, 2026-08-29
+
+**Area:** Cluster Scoring / Evaluation
+
+### Problem
+Running the normalized hybrid score on real full-dataset clusters, `temporal_coordination` came out as ~0.000003-0.0002 for essentially every cluster, including the highest-ranked ones — visually indistinguishable from zero, even though the formula is implemented exactly as specified (Section 7: inverse time-spread, min-max scaled to [0,1]).
+
+### Why It Happened
+At least one cluster has member transactions with (near-)identical `transaction_dt`, giving `inverse_spread = 1/(1+0) ≈ 1`, which becomes the max of the min-max scale. Every other cluster's inverse-spread value is comparatively tiny, so min-max scaling compresses nearly all of them toward 0 — a single extreme outlier is setting the scale for the whole population.
+
+### What Was Tried / Current status
+Not fixed. Confirmed via the weight-sensitivity check that this does not appear to distort the overall ranking much in practice (`temporal_coordination_up`/`_down` top-20 overlap: 0.95/1.0 — changing this weight barely moves the top-ranked clusters), so it is being left as a **documented, known limitation** rather than patched with an ad hoc rescaling (e.g. percentile-based) that isn't specified anywhere in the canonical docs and would be an unrequested scope addition mid-build.
+
+### What Changed in the System
+Nothing — this is intentionally left as-is and documented here plus in the scoring module, so it doesn't get silently rediscovered later or mistaken for a new bug. A real fix (e.g. percentile clipping before min-max, or log-scaling the spread) is a reasonable Day-5-or-later improvement if time allows, not a Day 3 blocker.
+
+### Guardrail / Evaluation Check
+Weights still sum to 1, all components still verified in [0,1] (the pytest suite enforces this). No leakage — this is a scaling property of the min-max formula applied to real data, not a threshold-selection issue.
+
+### Evidence
+`temporal_coordination` column values for the top-10 scored clusters: 0.000003 to 0.0002, against a component range of [0,1]. Weight-sensitivity overlap for this component: 0.95 (up) / 1.0 (down) at top-20 — i.e., doubling or removing its practical influence barely changes which clusters rank highest.
+
+**Commit:** (documentation only — no code change)
+
+**Issue/PR:** (none — logged as a known limitation during Day 3 verification)
+
+---
+

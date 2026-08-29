@@ -427,3 +427,33 @@ After fix (threshold=0.3, with the min-independent-evidence rule): 1,067 qualifi
 
 ---
 
+## Recurring pattern: full wide-table loads OOM-kill at ~590K rows x 400+ columns
+
+**Day/date:** Day 1-2, 2026-08-29
+
+**Area:** Infrastructure (memory) / Dataset
+
+### Problem
+Three separate steps (pseudo-entity resolution, entity representative-view build, and Layer A model training) were each killed (`returncode 137`) the first time they were run against the full `canonical_full.parquet` table (590,540 rows x 434-436 columns, ~1.2GB as a pandas DataFrame) in this sandbox's ~3.9GB RAM.
+
+### Why It Happened
+Each step only needs a small subset of the 434 canonical columns (pseudo-entity resolution needs 4 key fields; risk modeling needs the `V`/`C`/`D` feature columns, not device/address/card identity fields), but the working scripts were loading the *entire* canonical table via `pd.read_parquet(path)` with no column filter, then keeping multiple copies alive (`.copy()`, intermediate DataFrames, `float64` numpy arrays) simultaneously.
+
+### What Was Tried / What Finally Worked
+Each time: switched to `pd.read_parquet(path, columns=[...])` to load only the columns that step actually needs (parquet's columnar format makes this cheap), downcast numeric columns to `float32`/smaller int types, and explicitly `del` + `gc.collect()` intermediate frames before the next heavy allocation.
+
+### What Changed in the System
+No change to any detection/modeling logic — purely a memory-handling pattern now applied consistently: every script that reads `canonical_full.parquet` for a specific stage loads a column-limited slice rather than the full table. This is documented here once as a recurring pattern rather than three near-duplicate log entries, per this file's own instruction not to force an entry for every incident once the pattern is understood.
+
+### Guardrail / Evaluation Check
+No effect on train/dev/test split integrity, thresholds, or synthetic isolation — purely a compute/memory fix, verified by each step completing successfully and producing the same logical results after the fix (e.g. pseudo-entity counts, Layer A metrics) as intended.
+
+### Evidence
+Pseudo-entity resolution: killed on full 434-column load, succeeded in 2.3s on an 8-column slim load. Layer A training: killed on full-column load, succeeded (XGBoost trained in 50.7s) after switching to a 370-column feature-only load with float32 downcasting.
+
+**Commit:** (rolled into the same commits as the pseudo-entity and Layer A work)
+
+**Issue/PR:** (none — single-session fixes during Day 1-2 verification)
+
+---
+

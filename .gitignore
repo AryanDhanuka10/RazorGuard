@@ -21,3 +21,4 @@ venv/
 # Synthetic scenario isolation reminder:
 # configs/scenarios_test.yaml is tracked in git (it's not a secret) but must not
 # be opened/read by any code path before Day 5 — see DATA_STRATEGY.md Section 5.
+ml/artifacts/*.pkl

@@ -389,3 +389,41 @@ Full-dataset run after both fixes: 590,540 transactions -> 248,038 unique pseudo
 
 ---
 
+## Bridge-chaining from percentage-based identifier rarity (Day 1 go/no-go checkpoint failure)
+
+**Day/date:** Day 1, 2026-08-29
+
+**Area:** Graph / Edge Qualification
+
+### Problem
+Running the Day 1 Step 5 prototype (relationship-signal extraction + edge qualification + connected components on a representative 15,000-entity subset of real data) produced exactly the failure mode edge qualification is supposed to prevent: 1,408,297 of 1,423,360 raw signals (99%) qualified as edges, and connected components collapsed **12,885 of the 15,000 sampled entities into a single component**. This is bridge-chained noise, not coordinated clusters, and is the actual go/no-go signal DAILY_BUILD_PLAN.md Day 1 exists to catch before any infrastructure work.
+
+### Why It Happened
+`identifier_rarity` was computed as `1 - (fraction of the TOTAL ENTITY POPULATION sharing this identifier value)`, with a "globally common" cap at 15% population share. This looked reasonable in the abstract but breaks down for low-cardinality identifier fields: `addr1` has only 332 distinct values across 248,038 entities (~747 entities per value on average). No population-*percentage* cutoff can distinguish "common" from "rare" for a field with that little cardinality — a value held by 16,465 entities is only ~6.6% of the population, comfortably under the 15% cap, yet is obviously not meaningful evidence of coordination. The percentage framing was the wrong lens entirely, not just a badly-tuned cap.
+
+### What Was Tried
+1. First hypothesis: rarity was being computed from the local 15,000-entity *subset* instead of the global population, so a globally-common value could look artificially rare in a small sample. Checked this directly by comparing subset-based vs. global prevalence for the top addr1 values — they were nearly identical (subset was a good random sample), so this was **not** the actual cause, just a plausible-sounding one that had to be ruled out with real numbers before moving on.
+2. Checked actual cardinality of `addr1` (332 values) and `device_info` (1,119 values) against the entity population — this revealed the real problem: percentage-of-population is structurally the wrong measure for low-cardinality fields.
+
+### What Failed and Why
+The subset-vs-global-population hypothesis (Attempt 1) failed to explain the observed 99% qualification rate — the numbers matched almost exactly, so "wrong denominator source" was not the bug, even though it looked like an obvious candidate. Chasing it further would have produced a fix that didn't address the actual failure.
+
+### What Finally Worked
+Replaced the percentage-based rarity with an absolute-count, log-scaled formula: `rarity = 1 / (1 + log1p(global_entity_count_sharing_this_value))`, computed once from the full 248,038-entity representative view via `compute_global_identifier_counts()`. This naturally gives a value shared by 2 entities a rarity of ~0.48 and a value shared by 16,000+ entities a rarity of ~0.09, without needing an arbitrary percentage cutoff. Additionally added a minimum-independent-evidence qualification rule (documented as an implementation decision, not canon, per BUILD_CONTRACT.md Section 15): a pair qualifies only if 2+ distinct signal types corroborate it, OR a single signal type is present but its own rarity clears a high bar (0.4) — because even after the rarity fix, a lone weak `addr1` match combined only with temporal proximity was still occasionally clearing the base threshold.
+
+### What Changed in the System
+`graph/edges.py`: replaced `compute_identifier_rarity`'s percentage-of-population formula with the log-scaled absolute-count version; added `compute_global_identifier_counts()`; added the minimum-independent-evidence rule to `qualify_edges()`; lowered `EDGE_QUALIFICATION_THRESHOLD` from an initial 0.45 guess to 0.3 (still a Day-1 prototype default — final value gets swept on Day 3 against the Layer B1 proxy, per EVALUATION_PLAN.md Section 2, not decided here).
+
+### Guardrail / Evaluation Check
+This is exactly what edge qualification and the Day 1 checkpoint exist to catch, and it was caught before any infrastructure, ML, or policy work began — no downstream component was contaminated by the broken rarity formula. `scenarios_test.yaml`/`scenarios_dev.yaml` were not involved (still real-data only at this stage, correctly, per DATA_STRATEGY.md Section 6).
+
+### Evidence
+Before fix: 15,000-entity subset -> 1,408,297/1,423,360 signals qualified, largest component 12,885 entities.
+After fix (threshold=0.3, with the min-independent-evidence rule): 1,067 qualified edges, 523 clusters, largest cluster 7 entities, median cluster size 2. Manual inspection of the largest resulting cluster showed 5 of 7 entities sharing an identical `card1+card2+card5+card6+addr1` combination — a plausible same-instrument-different-pseudo-entity pattern, not obvious noise.
+
+**Commit:** `fix: replace percentage-based identifier rarity with log-scaled absolute-count rarity; add minimum-independent-evidence qualification rule`
+
+**Issue/PR:** (none — single-session fix during Day 1 verification)
+
+---
+

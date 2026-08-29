@@ -1,0 +1,23 @@
+# Data (never commit raw datasets)
+data/raw/
+data/processed/
+*.csv
+*.parquet
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Env / secrets
+.env
+*.key
+
+# OS
+.DS_Store
+
+# Synthetic scenario isolation reminder:
+# configs/scenarios_test.yaml is tracked in git (it's not a secret) but must not
+# be opened/read by any code path before Day 5 — see DATA_STRATEGY.md Section 5.

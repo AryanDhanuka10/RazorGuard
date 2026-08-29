@@ -1,0 +1,30 @@
+# RazorGuard requirements
+# Grouped by the day/component that first needs them (ARCHITECTURE.md Section 2).
+# Nothing here is installed until the task that needs it actually runs —
+# declaring the full manifest now is a Day 0 bootstrap step, not an implementation shortcut.
+
+# Day 1 — ingestion, canonicalization, pseudo-entity resolution, tests
+pandas==2.2.2
+numpy==1.26.4
+pyyaml==6.0.1
+pytest==8.2.0
+
+# Day 1 (infra, once Step 5 of Day 1 passes) / Day 2 — API + DB
+fastapi==0.111.0
+uvicorn==0.29.0
+pydantic==2.7.1
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+
+# Day 1/2 — graph construction (connected components only — no GNN/community detection)
+networkx==3.3
+
+# Day 2 — transaction risk model
+xgboost==2.0.3
+scikit-learn==1.4.2
+
+# Day 2/3 — dashboard
+streamlit==1.35.0
+
+# Day 4 — Investigation Agent
+anthropic==0.28.0

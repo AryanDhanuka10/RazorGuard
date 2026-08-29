@@ -52,7 +52,7 @@ def _entity_identifier_table(entities_df: pd.DataFrame, id_col: str) -> pd.DataF
 
 
 def extract_signals_for_identifier(
-    df: pd.DataFrame, id_col: str, signal_type: str, max_group_size: int = 500
+    df: pd.DataFrame, id_col: str, signal_type: str, max_group_size: int = 50
 ) -> list[RawSignal]:
     """
     For a single identifier column (e.g. device_info), find all pairs of
@@ -60,9 +60,15 @@ def extract_signals_for_identifier(
 
     `max_group_size` guards against a single globally-common identifier value
     (e.g. a null-like sentinel, or an extremely common device string) producing
-    a combinatorial explosion of pairs — such groups are skipped entirely here
-    and rely on edge qualification's identifier-rarity scoring downstream to
-    down-weight anything that *does* get through at a smaller scale. This cap
+    a combinatorial explosion of pairs. Default lowered from an initial 500 to
+    50 after a full-dataset OOM — see FAILURE_LOG.md "Combinatorial signal
+    explosion from large shared-identifier groups at full scale": a handful of
+    `card_combo` groups near 500 members each produce up to C(500,2)=124,750
+    pairs, and summed across the dataset this produced ~11.5M raw signal
+    objects, exceeding sandbox memory. These large groups are also the ones
+    edge qualification's rarity scoring would down-weight to near-zero anyway,
+    so excluding them from pairing entirely trades a small amount of already-
+    low-value signal for a large, necessary compute/memory saving — this cap
     is a computational safeguard, not the qualification logic itself.
     """
     table = _entity_identifier_table(df, id_col)
@@ -99,7 +105,7 @@ def build_card_combo_key(row: pd.Series) -> str | None:
 
 
 def extract_all_raw_signals(
-    entities_df: pd.DataFrame, max_group_size: int = 500
+    entities_df: pd.DataFrame, max_group_size: int = 50
 ) -> list[RawSignal]:
     """
     entities_df: one row per pseudo-entity's REPRESENTATIVE transaction-level

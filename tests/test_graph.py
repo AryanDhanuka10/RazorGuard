@@ -81,6 +81,24 @@ def test_identifier_rarity_decreases_with_global_count():
     assert rare_rarity > common_rarity
 
 
+def test_extract_all_raw_signals_default_matches_per_identifier_default():
+    """Regression test: extract_all_raw_signals() used to carry its own stale
+    max_group_size=500 default, independent of
+    extract_signals_for_identifier's default, which silently undid the
+    500->50 fix from FAILURE_LOG.md 'Combinatorial signal explosion from large
+    shared-identifier groups at full scale' whenever callers used the
+    top-level function instead of calling extract_signals_for_identifier
+    directly."""
+    import inspect
+    from graph.relationships import extract_all_raw_signals, extract_signals_for_identifier
+
+    top_level_default = inspect.signature(extract_all_raw_signals).parameters["max_group_size"].default
+    per_identifier_default = inspect.signature(extract_signals_for_identifier).parameters[
+        "max_group_size"
+    ].default
+    assert top_level_default == per_identifier_default
+
+
 def test_card_combo_key_requires_all_fields():
     row = pd.Series({"card1": 1, "card2": 2, "card5": 3, "card6": "debit"})
     assert build_card_combo_key(row) == "1|2|3|debit"

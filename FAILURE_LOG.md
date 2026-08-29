@@ -457,3 +457,75 @@ Pseudo-entity resolution: killed on full 434-column load, succeeded in 2.3s on a
 
 ---
 
+## Combinatorial signal explosion from large shared-identifier groups at full scale
+
+**Day/date:** Day 2, 2026-08-29
+
+**Area:** Graph / Edge Qualification (scaling the Day 1 prototype to the full dataset)
+
+### Problem
+Running `extract_all_raw_signals` on the full 248,038-entity representative view (the Day 2 task of scaling Day 1's validated approach to full data) was killed (OOM). The Day 1 prototype used a 15,000-entity subset and a `max_group_size=500` cap without issue, so this wasn't anticipated.
+
+### Why It Happened
+Exact pair counting (not just re-running and hoping) showed `card_combo` groups near the 500-member cap each produce up to C(500,2)=124,750 pairs via `itertools.combinations`, and summed across the full dataset this produced **~11.5 million** `RawSignal` dataclass instances before qualification even ran — far more Python-object memory than the 15,000-entity Day 1 subset ever produced (its largest groups were much smaller by chance).
+
+### What Was Tried
+Computed the exact expected pair count under caps of 500/200/100/50/30 before touching the pipeline again, rather than guessing-and-rerunning: cap=500 -> ~11.5M pairs, cap=100 -> ~1.58M, cap=50 -> ~729K (comparable in order of magnitude to the ~1.4M signals the Day 1 subset produced successfully).
+
+### What Failed and Why
+N/A — this was caught by computing the pair count directly rather than by a failed retry; no wasted implementation attempt.
+
+### What Finally Worked
+Lowered `max_group_size` from 500 to 50. The excluded large groups are exactly the ones edge qualification's rarity scoring already down-weights to near-zero (a card-combination shared by 200+ pseudo-entities is not meaningfully "rare" under the log-scaled rarity formula regardless), so this trades a small amount of already-low-value signal for the memory headroom needed to run at full scale.
+
+### What Changed in the System
+`graph/relationships.py`: `max_group_size` default changed from 500 to 50, with the reasoning documented in the function's docstring so a future re-tuning doesn't have to rediscover this.
+
+### Guardrail / Evaluation Check
+No change to the qualification formula or thresholds themselves — this only changes which raw signals are ever generated in the first place, and only for groups already expected to score near-zero. Train/dev/test split and synthetic scenario isolation unaffected (still real-data only).
+
+### Evidence
+Exact pair-count check: cap=500 -> 11,498,825 pairs; cap=50 -> 728,509 pairs. Full-dataset run after the fix completed and produced clusters (see Day 2 completion note in this log / REPO_STATE.md for the resulting cluster statistics).
+
+**Commit:** `fix: lower max_group_size 500->50 to fix full-dataset OOM in relationship-signal extraction`
+
+**Issue/PR:** (none — single-session fix during Day 2 verification)
+
+---
+
+## Stale duplicate default silently undid the group-size cap fix
+
+**Day/date:** Day 2, 2026-08-29
+
+**Area:** Graph / Edge Qualification
+
+### Problem
+After lowering `extract_signals_for_identifier`'s `max_group_size` default from 500 to 50 (previous entry), the full-dataset pipeline was **still** OOM-killed. Step-by-step memory profiling (`psutil`-based, not guessing) showed `extract_all_raw_signals(rep)` alone reached 1.83GB RSS and produced **11,498,825** raw signals — the exact count expected under the *old* cap of 500, not the fixed cap of 50.
+
+### Why It Happened
+`extract_all_raw_signals`, the top-level function actually used by callers, had its own separate `max_group_size: int = 500` default in its own function signature, independent of `extract_signals_for_identifier`'s default. The previous fix edited only the latter. Calling `extract_signals_for_identifier` directly (as an isolated profiling test did) correctly used 50 and produced the expected 728,509 signals; calling the top-level `extract_all_raw_signals` — the actual production code path — silently fell back to 500.
+
+### What Was Tried
+Ran `extract_signals_for_identifier` directly with an explicit `max_group_size=50` argument first, in isolation, to sanity-check the earlier fix — this succeeded and produced the expected ~728K signals, which briefly suggested the fix was working. Only running the *actual* full pipeline entry point (`extract_all_raw_signals`) with memory profiling revealed the discrepancy.
+
+### What Failed and Why
+Testing the lower-level function directly instead of the actual call path callers use gave a false sense that the fix was in place — the isolated call bypassed the very default that was still broken. This is a specific instance of a general lesson: verify the function that's actually called in production, not just the function that contains the logic being fixed.
+
+### What Finally Worked
+Updated `extract_all_raw_signals`'s own default to 50 to match. Added a regression test (`test_extract_all_raw_signals_default_matches_per_identifier_default`) that asserts the two defaults stay equal via `inspect.signature`, so a future edit to one default can't silently diverge from the other again.
+
+### What Changed in the System
+`graph/relationships.py`: `extract_all_raw_signals` default changed 500->50. `tests/test_graph.py`: added the defaults-consistency regression test.
+
+### Guardrail / Evaluation Check
+No effect on qualification logic or thresholds — purely closes a gap where a memory-safety parameter had two independent sources of truth.
+
+### Evidence
+Before fix: `extract_all_raw_signals(rep)` -> 11,498,825 signals, 1.83GB RSS, process killed shortly after. After fix: matches the 728,509-signal, ~360MB profile measured via the per-identifier function directly.
+
+**Commit:** `fix: extract_all_raw_signals had a stale duplicate max_group_size=500 default that silently undid the earlier fix; add regression test`
+
+**Issue/PR:** (none — single-session fix during Day 2 verification)
+
+---
+

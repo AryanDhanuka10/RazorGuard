@@ -313,7 +313,79 @@ The strongest Failure Recovery story is one where:
 
 # Current Failure Entries
 
-No failures have been recorded yet.
+---
 
-This section should remain unchanged until a genuine failure occurs during the build.
+## Device info silently null after merge
+
+**Day/date:** Day 1, 2026-08-29
+
+**Area:** Canonicalization
+
+### Problem
+After running `canonicalize_transactions` + `canonicalize_identity` + `merge_transaction_identity` on the full real IEEE-CIS dataset, `device_info` and `device_type` were **100% null** — even though the raw `train_identity.csv` clearly has real values (e.g. `"SAMSUNG SM-G892A Build/NRD90M"`, `"iOS Device"`) for ~20-24% of transactions.
+
+### Why It Happened
+`canonicalize_transactions()` listed `DeviceType`/`DeviceInfo` in its required-columns map even though those fields only exist in the identity table. Since the raw transaction table never has these columns, the function created them as **all-NaN placeholders** under the canonical names `device_type`/`device_info`. Separately, `canonicalize_identity()` was only renaming `TransactionID`, so it kept the identity table's device columns under their **raw** names (`DeviceType`/`DeviceInfo`). The merge then produced two device-related columns per field — the real data sitting under the raw name, and an all-NaN column sitting under the canonical name that all downstream code was actually going to read from.
+
+### What Was Tried
+Ran canonicalization first on a 20,000-row sample — device_info showed 100% null there too, which looked at first like a legitimate data-sparsity finding consistent with "inconsistently populated" (DATA_STRATEGY.md Section 2), not obviously a bug.
+
+### What Failed and Why
+Initially almost accepted the 100%-null result as "device_info is just this sparse in the sample," since DATA_STRATEGY.md already primes the expectation that this field is inconsistently populated. Rerunning on the full 590,540-row dataset (not just the sample) still showed 100% null, which is what triggered actually inspecting the merged column names rather than trusting the aggregate stat.
+
+### What Finally Worked
+Inspected the merged DataFrame's actual columns and found both `device_info` (all-NaN) and `DeviceInfo` (real data) present simultaneously. Removed `DeviceType`/`DeviceInfo` from `canonicalize_transactions()`'s field map entirely (they never legitimately come from the transaction table) and added an explicit `IDENTITY_CANONICAL_FIELDS` rename map to `canonicalize_identity()` so the real values land under the canonical lowercase names.
+
+### What Changed in the System
+`data/canonicalize.py`: removed `DeviceType`/`DeviceInfo` from `CANONICAL_FIELDS` (transaction side); added `IDENTITY_CANONICAL_FIELDS` and applied it in `canonicalize_identity()`. Re-verified on the full dataset: `device_info` null rate is now 79.9%, `device_type` 76.2% — consistent with "inconsistently populated," now for a real reason instead of a merge bug.
+
+### Guardrail / Evaluation Check
+No detector logic, thresholds, or synthetic scenarios were involved — this was caught before any relationship-signal or graph work began, so no downstream tuning was contaminated by the bad column.
+
+### Evidence
+Before fix: `device_info` null rate 1.0 on both a 20k-row sample and the full 590,540-row dataset.
+After fix: `device_info` null rate 0.7990551, `device_type` null rate 0.7615572, verified by direct execution against `data/raw/train_transaction.csv` + `data/raw/train_identity.csv`.
+
+**Commit:** `fix: canonicalization was silently nulling device_info/device_type after merge`
+
+**Issue/PR:** (none — single-session fix during Day 1 verification)
+
+---
+
+## Pseudo-entity resolution OOM-killed at full dataset scale
+
+**Day/date:** Day 1, 2026-08-29
+
+**Area:** Pseudo-Entity Resolution / Infrastructure (memory)
+
+### Problem
+`resolve_pseudo_entities()` ran fine on small fixtures but was killed (`returncode 137` / OOM) twice when run against the full 590,540-row dataset: once using a row-wise `df.apply(fingerprint_fn, axis=1)` implementation, and again — after vectorizing the hashing itself — when the input frame still carried all 434 canonical columns (including 339 `V*` risk features not needed for this step).
+
+### Why It Happened
+Two compounding causes: (1) `df.apply(..., axis=1)` materializes a Python `Series` object per row, which does not scale to ~590K rows on a ~3.9GB-RAM sandbox; (2) even after that was fixed with a vectorized `pd.factorize` approach, the function was still receiving the full wide canonical table (`df.copy()` on a ~1.2GB frame with 434 columns) when pseudo-entity resolution only needs 4 key fields plus a few aggregation fields — most of the memory pressure was columns this step never touches.
+
+### What Was Tried
+1. Vectorized the key-hashing (composite string key + `pd.factorize`, hash only unique keys) — fixed the row-wise slowness but the process was still killed on the full dataset.
+2. Checked `free -h` and the actual per-column memory footprint via `pyarrow.parquet.read_schema` to find the real bottleneck rather than guessing.
+
+### What Failed and Why
+Assuming the vectorized fingerprinting fix alone would be enough — it fixed the *algorithmic* inefficiency but not the *memory footprint* of operating on the full 434-column frame, which was the actual proximate cause of the second kill.
+
+### What Finally Worked
+Loaded only the 8 columns pseudo-entity resolution and its aggregation actually need (`pd.read_parquet(path, columns=[...])`, using parquet's columnar read to avoid pulling the ~339 `V*` columns into memory at all). This slim frame is ~16MB instead of ~1.2GB; resolution then completed in 2.3 seconds.
+
+### What Changed in the System
+`data/pseudo_entity.py`: replaced row-wise `.apply()` with vectorized `pd.factorize` over a composite string key. No change to the pseudo-entity heuristic itself (`card1+card2+addr1+d1`, unchanged) — this was purely a performance/memory fix, not a change to grouping logic. The verification workflow now explicitly loads a column-limited slim frame for this step rather than passing the full canonical table through every stage.
+
+### Guardrail / Evaluation Check
+No thresholds or synthetic scenarios involved. Pseudo-entity heuristic version string (`v1-card1_card2_addr1_d1`) unchanged, so no silent redefinition of the grouping logic occurred alongside the performance fix.
+
+### Evidence
+Full-dataset run after both fixes: 590,540 transactions -> 248,038 unique pseudo-entities; 65,878 entities with more than one transaction (recurring payers), 182,160 singleton entities. Resolve time 2.3s on the slim frame.
+
+**Commit:** `fix: vectorize pseudo-entity resolution + load slim column subset to fix OOM at full scale`
+
+**Issue/PR:** (none — single-session fix during Day 1 verification)
+
+---
 

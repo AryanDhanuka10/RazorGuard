@@ -622,3 +622,33 @@ Before fix: `TypeError: Invalid value '25381.61...' for dtype 'int64'` and `Type
 
 ---
 
+## SQLite cross-thread audit-log error under FastAPI TestClient
+
+**Day/date:** Day 4, 2026-08-29
+
+**Area:** Database / Infrastructure
+
+### Problem
+`tests/test_api.py`'s investigate/approve/reject tests failed with `sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread` — the audit-log write inside `/clusters/{id}/investigate` crashed when called through FastAPI's `TestClient`.
+
+### Why It Happened
+The audit SQLite connection was created once at `load_state()` time (one thread) but FastAPI's `TestClient` (and FastAPI's real request handling in general) can dispatch a given request's handler on a different thread. SQLite's default `check_same_thread=True` forbids using a connection object across threads.
+
+### What Finally Worked
+`sqlite3.connect(db_path, check_same_thread=False)`. This module still only ever issues one `INSERT` (`append_audit_entry`) and one `SELECT` (`get_audit_trail`) — disabling the same-thread check permits calling those two functions from request-handling threads; it does not add any new capability or weaken the INSERT/SELECT-only design.
+
+### What Changed in the System
+`backend/audit.py`: `get_connection()` now passes `check_same_thread=False`, with the reasoning documented inline so it isn't mistaken for a careless "just make the error go away" fix later.
+
+### Guardrail / Evaluation Check
+No change to what operations are possible against the audit log — still exactly INSERT and SELECT, nothing else. This is purely a threading-compatibility fix for the reference SQLite substitute used in this sandbox (see backend/audit.py's module docstring on the Postgres-vs-SQLite gap).
+
+### Evidence
+Before fix: 2 of 7 `tests/test_api.py` tests failed with the cross-thread `ProgrammingError`. After fix: all 7 pass, including a genuine end-to-end investigate -> policy-decision -> audit-write flow (with the LLM call mocked) run through FastAPI's real request-handling path via `TestClient`.
+
+**Commit:** `fix: SQLite check_same_thread=False for audit connection under FastAPI TestClient`
+
+**Issue/PR:** (none — single-session fix during Day 4 verification)
+
+---
+

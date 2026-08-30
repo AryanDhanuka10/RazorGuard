@@ -1,38 +1,28 @@
 # REPO_STATE.md
-**Populated only from actual verification performed in this session — no assumptions, per BUILD_CONTRACT.md Section 13.**
+Updated at the end of the build session (Days 0-5 completed in one continuous session). Populated from actual verification, not assumption, per BUILD_CONTRACT.md Section 13.
 
-## Environment (verified by direct execution)
-- Python 3.12.3, pip 24.0, git 2.43.0 — all present and working.
-- `pandas`, `pyyaml`, `pytest` installed and import successfully.
-  - Actual resolved versions in this sandbox: pandas 3.0.2, pyyaml 6.0.3, pytest 9.1.1 — these differ from the pins in `requirements.txt` (which target the versions used when this file was drafted, e.g. pandas 2.2.2). **This sandbox is ephemeral and is not the environment the real 5-day build will run in** — when you set up the real project environment (locally or in Claude Code), re-resolve and lock actual versions there; don't assume this sandbox's resolved versions are canonical.
-- `xgboost`, `fastapi`, `networkx`, `streamlit`, Docker: **not installed/verified yet** — out of Day 0 scope; DAILY_BUILD_PLAN.md brings these in on Day 1 (infra, after the Step 5 checkpoint) and Day 2.
+## Test suite
+171 pytest tests, all passing (`pytest tests/ -q`). Includes the never-weakened policy guardrail test (109 parametrized cases) and multiple regression tests written directly from real bugs found during this build.
 
-## Dataset access (verified by direct execution — this is a real blocker, not a formality)
-- `kaggle.com` is **not reachable from this sandbox** — confirmed via direct request, blocked by the sandbox's own egress policy (`x-deny-reason: host_not_allowed`), not a Kaggle-side error.
-- **Consequence: the IEEE-CIS Fraud Detection dataset cannot be downloaded from within this chat's code-execution environment.** Day 1 cannot actually begin (ingestion needs the real CSVs) until the dataset is available to whatever environment does the work. Two ways forward:
-  1. Download `train_transaction.csv`/`train_identity.csv` (and test equivalents) from Kaggle yourself and upload them here — I can then work with them directly in this chat.
-  2. Do Day 1 onward in an environment with real internet access (your own machine, or Claude Code) where `kaggle datasets download` or the Kaggle API can actually reach kaggle.com.
-- Elliptic(++) is optional/secondary (DATA_STRATEGY.md Section 3) — not needed for Day 0/1, same access constraint would apply if/when it's attempted.
+## What's real and verified
+- Full Day 1-3 pipeline run against the real 590,540-transaction IEEE-CIS dataset (not a sample, not synthetic placeholders): canonicalization, pseudo-entity resolution (248,038 entities), relationship-signal extraction (728,509 signals), edge qualification (6,289 qualified edges), connected-components clustering (3,425 clusters), XGBoost Layer A, normalized hybrid cluster scoring, Layer B1 evaluation.
+- Layer B2 run for real, exactly once, against `configs/scenarios_test.yaml` (created and opened by `scripts/day5_final_evaluation.py` only — confirmed by a static repo-wide grep test).
+- Policy engine + its 109-case guardrail test.
+- FastAPI backend + SQLite audit log, verified in-process via TestClient with the LLM call mocked (real end-to-end investigate -> policy -> audit-write flow).
+- Three Streamlit UIs, each actually started and confirmed serving (HTTP 200) against real computed data.
+- 12 genuine engineering failures found, diagnosed, and (in 10 of 12 cases) fixed with regression tests, logged honestly in FAILURE_LOG.md as they happened.
 
-## Repository structure (created this session)
-```
-razorguard/
-  data/ ml/ graph/ agents/ policy/ backend/ frontend/  <- empty, per ARCHITECTURE.md Section 2 component boundaries
-  configs/                                              <- empty; scenarios_dev.yaml / scenarios_test.yaml do NOT exist yet
-  tests/                                                <- empty
-  docs/                                                  <- the 7 canonical/contract docs, copied in verbatim
-  FAILURE_LOG.md                                        <- template only, no entries (correct — none have occurred)
-  requirements.txt, .gitignore, README.md
-```
+## What's honestly NOT verified
+1. **Investigation Agent live call.** No `ANTHROPIC_API_KEY` in this sandbox (confirmed by direct env check). `agents/investigate.py`'s prompt construction and response schema validation are tested with mocked/canned responses; the actual model call has never executed. This is the single largest unverified piece of the build.
+2. **Docker / Postgres.** No Docker daemon in this sandbox (confirmed: `which docker` fails). `backend/audit.py` substitutes SQLite, with the INSERT/SELECT-only guarantee enforced only at the application layer, not by a real Postgres GRANT as ARCHITECTURE.md Section 7 specifies.
+3. **Elliptic(++) validation.** Optional per DATA_STRATEGY.md/EVALUATION_PLAN.md, and never attempted — the Elliptic(++) dataset was never obtained in this session, and the core system's real work took priority.
+4. **The 20-30 case LLM evaluation set.** The harness (`agents/eval_harness.py`) is real and tested; a populated result set requires the live agent (see #1).
+
+## Environment
+Python 3.12.3, pip 24.0, git 2.43.0. Sandbox is ephemeral — this container's state does not persist to a new chat session. The `razorguard-*.zip` delivered to the user is the actual, complete, current state of the repository, including the `.git` history.
+
+## scenarios_test.yaml isolation
+Created and opened exactly once, by `scripts/day5_final_evaluation.py`, on Day 5, after all detector thresholds were frozen. No tuning followed the Layer B2 run — a genuinely bad result (25% cluster recall) was diagnosed and documented, not used to justify reopening graph/edges.py.
 
 ## Current build day
-**Day 0 (bootstrap) — in progress.** Day 1 has not started. No detection logic, no models, no API, no DB, no UI exist.
-
-## scenarios_test.yaml
-Does not exist. Nothing to isolate yet. Isolation rule is understood and will be enforced once it's created (Day 5 only, per DATA_STRATEGY.md Section 5 / BUILD_CONTRACT.md Section 10).
-
-## Tests executed
-None yet — nothing to test until Day 1 ingestion/canonicalization code exists.
-
-## Metrics generated
-None.
+Days 0-5 complete, in the sense of "every task in DAILY_BUILD_PLAN.md was attempted and either done for real or explicitly, honestly flagged as blocked." Not complete in the sense of "ready to deploy without further work" — see the four gaps above.

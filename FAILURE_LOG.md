@@ -592,3 +592,33 @@ Weights still sum to 1, all components still verified in [0,1] (the pytest suite
 
 ---
 
+## Ring injector dtype errors on real column types
+
+**Day/date:** Day 4, 2026-08-29
+
+**Area:** Synthetic Evaluation (ring injector)
+
+### Problem
+`inject_ring_scenario()` raised `TypeError: Invalid value '...' for dtype 'int64'`/`'float64'` when tested against realistic column types: assigning a float time-offset into an integer `transaction_dt` column, and separately assigning a synthetic string value (e.g. `"SYNTH-addr1-101"`) into a numeric `addr1` column.
+
+### Why It Happened
+The representative view's columns keep their natural IEEE-CIS dtypes (`transaction_dt` as int-like, `addr1` as float, `device_info` as object/string). The injector was written assuming it could freely assign a float or a string into whatever dtype the target column happened to have — pandas raises rather than silently upcasting in these cases.
+
+### What Was Tried / What Finally Worked
+Cast `transaction_dt` to `float64` before writing offset values into it, and cast the target identifier column to `object` dtype before writing the synthetic string value into it — both casts applied only when the scenario actually injects a ring (`ring_size > 0`), preserving the zero-size negative-control scenario as a true no-op (verified by `test_zero_size_ring_is_a_valid_negative_control`, which asserts the output frame is byte-for-byte identical to the input when no ring is injected).
+
+### What Changed in the System
+`data/ring_injector.py`: added the two dtype casts, scoped to only run when a ring is actually being injected.
+
+### Guardrail / Evaluation Check
+Caught entirely within `scenarios_dev.yaml`-based unit tests, before any real scenario config was run against the full dataset — no `scenarios_test.yaml` involvement, correctly (a static repo-wide guard test now also verifies no file outside the Day 5 evaluation script references `scenarios_test.yaml` at all, and confirms the file doesn't exist yet).
+
+### Evidence
+Before fix: `TypeError: Invalid value '25381.61...' for dtype 'int64'` and `TypeError: Invalid value 'SYNTH-addr1-101' for dtype 'float64'`. After fix: all 7 ring-injector tests pass, including determinism, ground-truth correctness, and the negative-control no-op check.
+
+**Commit:** `fix: ring injector dtype errors when injecting float offsets/string values into numeric columns`
+
+**Issue/PR:** (none — single-session fix during Day 4 verification)
+
+---
+

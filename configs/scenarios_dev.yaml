@@ -1,0 +1,45 @@
+# configs/scenarios_dev.yaml
+# Used freely during Days 1-4 for building/debugging/sanity-checking the
+# detector (DATA_STRATEGY.md Section 5). NEVER used for final threshold
+# selection on real data (that's Layer B1, real data only, dev split).
+#
+# scenarios_test.yaml (Day 5 only) uses DIFFERENT ring topology,
+# identifier-sharing pattern, and temporal spread than what's below — so the
+# test set isn't simply this dev pattern re-labeled (DATA_STRATEGY.md Section 5).
+
+scenarios:
+  - scenario_id: dev_ring_small_device_tight
+    ring_size: 4
+    shared_signal: device_info
+    temporal_spread_hours: 2
+    description: >
+      Small ring (4 entities), sharing a synthetic device-info value, tightly
+      clustered in time (2-hour window). Should be an easy positive case.
+
+  - scenario_id: dev_ring_medium_addr_loose
+    ring_size: 7
+    shared_signal: addr1
+    temporal_spread_hours: 48
+    description: >
+      Medium ring (7 entities), sharing a synthetic address code, loosely
+      spread over 2 days. Tests whether temporal looseness alone defeats
+      detection when the shared signal is otherwise real.
+
+  - scenario_id: dev_ring_large_card_combo
+    ring_size: 12
+    shared_signal: card_combo
+    temporal_spread_hours: 6
+    description: >
+      Larger ring (12 entities) sharing a synthetic card-combination value
+      within a 6-hour window. Tests cluster-size handling and whether the
+      hybrid score's exposure/concentration components respond sensibly to
+      ring size.
+
+  - scenario_id: dev_no_ring_control
+    ring_size: 0
+    shared_signal: device_info
+    temporal_spread_hours: 0
+    description: >
+      Explicit NEGATIVE control — no ring injected. Used to sanity-check that
+      the detector does not hallucinate structure where none exists (feeds the
+      Investigation Agent's insufficient_evidence evaluation, Day 4 evening).

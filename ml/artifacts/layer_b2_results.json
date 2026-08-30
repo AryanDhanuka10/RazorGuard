@@ -1,0 +1,61 @@
+{
+  "label_type": "Layer B2 (synthetic scenario result) \u2014 real cluster-level ground truth, by construction",
+  "per_scenario": {
+    "test_ring_tiny_device_very_tight": {
+      "is_negative_control": false,
+      "true_ring_size": 3,
+      "detected": true,
+      "detected_cluster_id": "cluster_00048",
+      "detected_cluster_size": 3,
+      "entity_precision": 1.0,
+      "entity_recall": 1.0,
+      "purity": 1.0
+    },
+    "test_ring_small_card_combo_tight": {
+      "is_negative_control": false,
+      "true_ring_size": 5,
+      "detected": false,
+      "cluster_precision": 0.0,
+      "cluster_recall": 0.0,
+      "entity_precision": 0.0,
+      "entity_recall": 0.0,
+      "purity": 0.0
+    },
+    "test_ring_medium_addr_days_spread": {
+      "is_negative_control": false,
+      "true_ring_size": 9,
+      "detected": false,
+      "cluster_precision": 0.0,
+      "cluster_recall": 0.0,
+      "entity_precision": 0.0,
+      "entity_recall": 0.0,
+      "purity": 0.0
+    },
+    "test_ring_large_device_loose": {
+      "is_negative_control": false,
+      "true_ring_size": 15,
+      "detected": false,
+      "cluster_precision": 0.0,
+      "cluster_recall": 0.0,
+      "entity_precision": 0.0,
+      "entity_recall": 0.0,
+      "purity": 0.0
+    },
+    "test_no_ring_control_a": {
+      "is_negative_control": true,
+      "true_ring_size": 0
+    },
+    "test_no_ring_control_b": {
+      "is_negative_control": true,
+      "true_ring_size": 0
+    }
+  },
+  "summary": {
+    "num_positive_scenarios": 4,
+    "num_detected": 1,
+    "cluster_recall": 0.25,
+    "mean_entity_precision_when_detected": 1.0,
+    "mean_entity_recall_when_detected": 1.0,
+    "mean_purity_when_detected": 1.0
+  }
+}

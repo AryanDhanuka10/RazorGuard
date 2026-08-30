@@ -59,19 +59,40 @@ def inject_ring_scenario(
     base_dt = df["transaction_dt"].median()
     spread_seconds = scenario.get("temporal_spread_hours", 1) * 3600
 
-    # The target column (device_info, addr1, or a card field) may be numeric
-    # in the source data (e.g. addr1 is float-typed) but the synthetic value
-    # is always a string — casting the column to object dtype first avoids a
-    # pandas TypeError ("Invalid value ... for dtype 'float64'") when
-    # assigning a string into a numeric column.
-    target_col = scenario["shared_signal"]
-    if df[target_col].dtype != object:
-        df[target_col] = df[target_col].astype(object)
+    # 'card_combo' is NOT a real column on the representative view — it is
+    # computed on the fly, downstream, by graph/relationships.py from
+    # card1+card2+card5+card6 (see build_card_combo_key). Writing a synthetic
+    # value into a literal 'card_combo' column here would do nothing useful:
+    # extract_all_raw_signals() recomputes card_combo from those four raw
+    # fields and would silently overwrite/ignore the injected value (see
+    # FAILURE_LOG.md "Ring injector card_combo scenarios silently no-ops").
+    # For this signal type, inject into the four underlying fields directly,
+    # giving all ring members an identical (card1, card2, card5, card6) tuple
+    # — which is exactly what a real 'shared card-related combination' is.
+    if scenario["shared_signal"] == "card_combo":
+        card_fields = ["card1", "card2", "card5", "card6"]
+        for f in card_fields:
+            if df[f].dtype != object:
+                df[f] = df[f].astype(object)
+        synthetic_card_values = {f: f"{synthetic_value}-{f}" for f in card_fields}
+    else:
+        target_col = scenario["shared_signal"]
+        # The target column (device_info, addr1) may be numeric in the source
+        # data (e.g. addr1 is float-typed) but the synthetic value is always a
+        # string — casting the column to object dtype first avoids a pandas
+        # TypeError ("Invalid value ... for dtype 'float64'") when assigning a
+        # string into a numeric column.
+        if df[target_col].dtype != object:
+            df[target_col] = df[target_col].astype(object)
 
     for i, entity_id in enumerate(ring_members):
         offset = rng.uniform(0, spread_seconds)
         mask = df["pseudo_entity_id"] == entity_id
-        df.loc[mask, target_col] = synthetic_value
+        if scenario["shared_signal"] == "card_combo":
+            for f, v in synthetic_card_values.items():
+                df.loc[mask, f] = v
+        else:
+            df.loc[mask, target_col] = synthetic_value
         df.loc[mask, "transaction_dt"] = base_dt + offset
 
     return df, ring_members

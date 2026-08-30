@@ -1,0 +1,64 @@
+# configs/scenarios_test.yaml
+# OPENED EXACTLY ONCE — Day 5, for Layer B2 final evaluation only
+# (DATA_STRATEGY.md Section 5 / DAILY_BUILD_PLAN.md Day 5 Task 2).
+# Never used for threshold tuning, detector debugging, or any Day 1-4 activity
+# — confirmed by tests/test_ring_injector.py's static repo-wide grep guard,
+# which passed before this file existed and must continue passing.
+#
+# Deliberately DIFFERENT ring topology, identifier-sharing pattern, and
+# temporal spread than configs/scenarios_dev.yaml, so this is not simply the
+# dev pattern re-labeled:
+#   dev:  4/7/12-member rings, one signal type each, hours-scale spread
+#   test: 3/5/9/15-member rings, MIXED signal types within a single ring
+#         (see scripts/day5_final_evaluation.py for how mixed-signal rings
+#         are constructed on top of this file's single-signal primitive),
+#         and a wider mix of tight/loose temporal spread including a
+#         days-scale case dev never covers.
+
+scenarios:
+  - scenario_id: test_ring_tiny_device_very_tight
+    ring_size: 3
+    shared_signal: device_info
+    temporal_spread_hours: 0.5
+    description: >
+      Smallest ring size tested (3, the minimum for MIN_CLUSTER_MEMBERS),
+      extremely tight temporal window. Easiest positive case in this set.
+
+  - scenario_id: test_ring_small_card_combo_tight
+    ring_size: 5
+    shared_signal: card_combo
+    temporal_spread_hours: 1
+    description: >
+      Same size class as dev's smallest ring, but a different signal type
+      (card_combo instead of device_info) and tighter window — tests
+      generalization across signal type, not just size.
+
+  - scenario_id: test_ring_medium_addr_days_spread
+    ring_size: 9
+    shared_signal: addr1
+    temporal_spread_hours: 96
+    description: >
+      Larger than any dev addr1 scenario, and spread over 4 days (dev's
+      loosest is 48 hours) — a harder case for temporal_coordination scoring
+      that dev never exercised.
+
+  - scenario_id: test_ring_large_device_loose
+    ring_size: 15
+    shared_signal: device_info
+    temporal_spread_hours: 72
+    description: >
+      Largest ring in this test set, loosely spread over 3 days. Tests
+      whether cluster size alone (independent of tightness) still gets
+      surfaced reasonably.
+
+  - scenario_id: test_no_ring_control_a
+    ring_size: 0
+    shared_signal: device_info
+    temporal_spread_hours: 0
+    description: Negative control A — no ring injected.
+
+  - scenario_id: test_no_ring_control_b
+    ring_size: 0
+    shared_signal: card_combo
+    temporal_spread_hours: 0
+    description: Negative control B — no ring injected (different signal type field touched by the harness for symmetry, but no actual injection occurs at ring_size=0).

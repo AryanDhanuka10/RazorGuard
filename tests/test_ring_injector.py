@@ -59,6 +59,30 @@ def test_inject_all_scenarios_returns_ground_truth_per_scenario():
     assert len(ground_truth["b"]) == 4
 
 
+def test_card_combo_injection_survives_downstream_recomputation():
+    """Regression test for FAILURE_LOG.md 'Ring injector card_combo scenarios
+    silently no-op': card_combo isn't a real column — it's recomputed
+    downstream by graph/relationships.py from card1+card2+card5+card6. This
+    test injects a card_combo ring, then runs the ACTUAL downstream
+    recomputation (build_card_combo_key) and confirms the ring members still
+    end up sharing one identical, rare card_combo value — i.e. the injection
+    actually survives the pipeline it's meant to be detected by."""
+    from graph.relationships import build_card_combo_key
+
+    rep = _fixture_rep_view()
+    scenario = {"scenario_id": "s_card", "ring_size": 6, "shared_signal": "card_combo", "temporal_spread_hours": 1}
+    modified, members = inject_ring_scenario(rep, scenario, seed=99)
+
+    recomputed = modified.copy()
+    recomputed["card_combo"] = recomputed.apply(build_card_combo_key, axis=1)
+
+    ring_combos = recomputed[recomputed["pseudo_entity_id"].isin(members)]["card_combo"].unique()
+    assert len(ring_combos) == 1, "injected ring members must share exactly one card_combo value after downstream recomputation"
+
+    non_ring_combos = recomputed[~recomputed["pseudo_entity_id"].isin(members)]["card_combo"]
+    assert ring_combos[0] not in set(non_ring_combos), "injected combo must not collide with any real entity's combo"
+
+
 def test_scenarios_dev_yaml_loads_and_has_expected_shape():
     path = os.path.join(os.path.dirname(__file__), "..", "configs", "scenarios_dev.yaml")
     with open(path) as f:
@@ -70,16 +94,16 @@ def test_scenarios_dev_yaml_loads_and_has_expected_shape():
         assert s["shared_signal"] in ("device_info", "addr1", "card_combo")
 
 
-def test_scenarios_test_yaml_does_not_exist_yet():
-    """Hard isolation check (DATA_STRATEGY.md Section 5): scenarios_test.yaml
-    must not exist before Day 5. If this test starts failing because the file
-    now exists, that's expected ONLY once Day 5 legitimately creates it —
-    until then, its existence here would mean something touched it early."""
+def test_scenarios_test_yaml_created_exactly_once_on_day_5():
+    """DAY 5 UPDATE: this file's earlier version asserted scenarios_test.yaml
+    did NOT exist, and that was correct for Days 1-4. It has now been
+    legitimately created as part of Day 5's final evaluation
+    (configs/scenarios_test.yaml, scripts/day5_final_evaluation.py) — this is
+    the expected one-time transition the original test's docstring called
+    out, not a violation. From here on, the invariant that matters is that it
+    was opened by exactly one script."""
     path = os.path.join(os.path.dirname(__file__), "..", "configs", "scenarios_test.yaml")
-    assert not os.path.exists(path), (
-        "scenarios_test.yaml exists but this is before Day 5 — isolation violation "
-        "unless Day 5's final-evaluation step legitimately created it just now"
-    )
+    assert os.path.exists(path), "expected scenarios_test.yaml to exist by Day 5"
 
 
 def test_no_source_file_in_the_repo_references_scenarios_test_yaml():
@@ -92,7 +116,8 @@ def test_no_source_file_in_the_repo_references_scenarios_test_yaml():
                       "scenarios_test.yaml", ".gitignore", "EVALUATION_PLAN.md",
                       # These reference the isolation RULE in comments/docs, but never
                       # programmatically open or read the file itself:
-                      "scoring.py", "ring_injector.py", "scenarios_dev.yaml", "README.md"}
+                      "scoring.py", "ring_injector.py", "scenarios_dev.yaml", "README.md",
+                      "FAILURE_LOG.md", "EVALUATION_RESULTS.md"}
     violations = []
     for dirpath, _, filenames in os.walk(repo_root):
         if ".git" in dirpath:

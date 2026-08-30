@@ -652,3 +652,72 @@ Before fix: 2 of 7 `tests/test_api.py` tests failed with the cross-thread `Progr
 
 ---
 
+## Ring injector card_combo scenarios silently no-op
+
+**Day/date:** Day 5, 2026-08-29
+
+**Area:** Synthetic Evaluation (ring injector) / Graph
+
+### Problem
+Running `scripts/day5_final_evaluation.py` (the Day 5 Layer B2 script, the first real use of `card_combo`-type scenarios) crashed with `KeyError: 'card_combo'` inside `graph/relationships.py`'s `extract_all_raw_signals`, which expects to compute `card_combo` itself from `card1/card2/card5/card6` — it is not a real column on the entity representative view at all.
+
+### Why It Happened
+`data/ring_injector.py`'s `inject_ring_scenario` treated `scenario['shared_signal']` as a literal column name to write a synthetic value into, for all three signal types uniformly. That works for `device_info` and `addr1` (real columns), but `card_combo` is a *derived* value, recomputed downstream by `graph/relationships.py` from four underlying fields. Even if the injector had written a literal `card_combo` column (rather than crashing), `extract_all_raw_signals()` would have silently discarded it and recomputed `card_combo` fresh from the unmodified `card1/card2/card5/card6` fields — the injected ring would never actually share anything by the time signal extraction ran. The crash was actually the fortunate outcome here; the silent-no-op version would have been worse and harder to notice.
+
+### What Was Tried
+First fix attempt considered simply adding a literal `card_combo` column to satisfy the immediate `KeyError`. Recognized before implementing that this would only convert a loud crash into a silent, undetected failure (the injected ring would vanish the moment `extract_all_raw_signals` recomputed the field) — not implemented, in favor of fixing the actual root cause.
+
+### What Finally Worked
+For `card_combo` scenarios specifically, `inject_ring_scenario` now writes a shared synthetic value into all four underlying fields (`card1`, `card2`, `card5`, `card6`) for the ring's members, so the injected ring has a genuinely identical 4-tuple — exactly what a real shared card-combination is — that survives `build_card_combo_key`'s downstream recomputation intact. Added a regression test that runs the actual downstream recomputation function against the injector's output and confirms the ring still shares exactly one card_combo value afterward, rather than only checking the injector's own output in isolation.
+
+### What Changed in the System
+`data/ring_injector.py`: `card_combo` scenarios now branch to inject into the four underlying card fields instead of a literal `card_combo` column. `tests/test_ring_injector.py`: added `test_card_combo_injection_survives_downstream_recomputation`, which specifically exercises the actual `graph/relationships.build_card_combo_key` function rather than mocking or assuming its behavior.
+
+### Guardrail / Evaluation Check
+Caught before any Layer B2 numbers were produced — no synthetic results were computed on the broken version, so nothing needed to be discarded or re-reported. `scenarios_test.yaml` isolation unaffected: this was a bug in the injector logic itself, not a premature read of the test config (the config was already legitimately open per Day 5).
+
+### Evidence
+Before fix: `KeyError: 'card_combo'` when running `scripts/day5_final_evaluation.py`. After fix: injected `card_combo` rings verified (via the new regression test) to share exactly one card_combo value after running the real downstream recomputation, and to not collide with any non-ring entity's combo.
+
+**Commit:** `fix: ring injector card_combo scenarios now inject into the underlying card fields, not a nonexistent literal column; add regression test against real downstream recomputation`
+
+**Issue/PR:** (none — single-session fix during Day 5 verification)
+
+---
+
+## Layer B2: single-signal-type rings above ~4 members are systematically undetected (documented limitation, NOT fixed — post-freeze)
+
+**Day/date:** Day 5, 2026-08-29
+
+**Area:** Evaluation / Edge Qualification
+
+### Problem
+Running the real, one-time Layer B2 evaluation (`scripts/day5_final_evaluation.py`, `configs/scenarios_test.yaml`) produced cluster_recall = 0.25 (1 of 4 positive scenarios detected): the 3-member tight `device_info` ring was detected perfectly (precision/recall/purity all 1.0), but the 5-member `card_combo`, 9-member `addr1`, and 15-member `device_info` rings were **not detected at all** — zero overlap with any extracted cluster.
+
+### Why It Happened
+Traced precisely, not just observed: each test scenario shares exactly ONE signal type (by design, to test generalization across signal types individually). `qualify_edges()`'s minimum-independent-evidence rule (added Day 1, see "Bridge-chaining from percentage-based identifier rarity") requires either 2+ signal types OR a single signal type with `identifier_rarity >= 0.4`. For a synthetic value shared by exactly `ring_size` entities globally (and nowhere else), `identifier_rarity = 1/(1+log1p(ring_size))`. Computed directly: ring_size=3 -> 0.419 (clears the bar), ring_size=5 -> 0.358, ring_size=9 -> 0.303, ring_size=15 -> 0.265 (all below it). **The log-scaled rarity formula makes a larger ring's shared marker look progressively less "rare" and therefore less qualifying — even though a synthetic marker shared by exactly 15 entities and nowhere else in a 248,038-entity population is arguably a *stronger* coordination signal than one shared by 3, not a weaker one.**
+
+### What Was Tried
+None — per `DAILY_BUILD_PLAN.md` Day 5 Task 1 ("Freeze — no further changes to thresholds, weights, or detector logic after this point") and this script's own printed reminder, no attempt was made to adjust `SINGLE_SIGNAL_HIGH_RARITY_BAR`, the rarity formula, or the qualification rule in response to this result. This finding is reported as-is.
+
+### What Failed and Why
+N/A by design — no fix was attempted post-freeze, deliberately, so this Layer B2 number reflects the actually-frozen system rather than a result tuned after seeing the test set (which would itself be a `scenarios_test.yaml` isolation violation).
+
+### What Finally Worked
+Not applicable — this is an honestly reported limitation, not a resolved failure. The real underlying tension: the minimum-independent-evidence rule exists specifically to stop *common, uninformative* single signals (e.g. a shared address-region code held by thousands of unrelated people) from bridge-chaining unrelated entities together. That same log-scaled rarity measure, applied to a *genuinely rare but larger* synthetic ring, penalizes it for being large rather than rewarding it for being exclusive. Distinguishing these two cases would need something beyond raw shared-entity count — e.g. comparing a value's prevalence against what's typical for its *specific* signal type (a shared address code held by 15 people is unremarkable; a shared card_combo held by 15 people is very unusual, since card_combo cardinality is far higher and legitimate collisions of the full 4-tuple are rare) — a design change appropriately deferred to a future iteration, not attempted here.
+
+### What Changed in the System
+Nothing in `graph/edges.py`, `graph/scoring.py`, or any threshold. This entry and `EVALUATION_RESULTS.md`'s Layer B2 section are the only changes — pure documentation of a real, diagnosed, frozen-system limitation.
+
+### Guardrail / Evaluation Check
+`scenarios_test.yaml` isolation fully honored: opened exactly once, by exactly one script (`scripts/day5_final_evaluation.py`), no tuning followed. This is precisely the isolation discipline the rule exists to protect — a bad number, reported honestly, with no rerun-until-better temptation acted on.
+
+### Evidence
+Full Layer B2 output: `ml/artifacts/layer_b2_results.json`. Cluster recall 0.25 (1/4 positive scenarios). When detected, entity precision/recall/purity all 1.0 (the one true positive was clean, not a partial/noisy match). Rarity-vs-ring-size relationship confirmed by direct computation: 3->0.419, 5->0.358, 9->0.303, 15->0.265 against a fixed 0.4 bar.
+
+**Commit:** (documentation only — no code change, by design, per the Day 5 freeze rule)
+
+**Issue/PR:** (none — logged as a genuine, diagnosed, unresolved limitation during Day 5 final evaluation)
+
+---
+

@@ -721,3 +721,33 @@ Full Layer B2 output: `ml/artifacts/layer_b2_results.json`. Cluster recall 0.25 
 
 ---
 
+## External review caught 5 real post-freeze issues (pyarrow, exposure=0.0, frontend/API drift, currency symbol, doc drift)
+
+**Day/date:** post-Day-5, 2026-08-31
+
+**Area:** Infrastructure / API / Frontend / Documentation
+
+### Problem
+An external technical review of the delivered zip, run against a genuinely clean environment, found: (1) `pyarrow` missing from `requirements.txt` — 6 tests failed on a clean `pip install`, even though they passed in the dev sandbox where pyarrow had been installed manually earlier; (2) `GET /clusters/{id}` hardcoded `cluster_transaction_value=0.0`, so the API's exposure figure was always zero while the Streamlit views computed the real figure independently — exactly the drift `ARCHITECTURE.md` Section 5a exists to prevent; (3) the frontend reads parquet artifacts and calls backend Python functions directly instead of the documented API-only rendering path; (4) the dashboard displayed exposure with a ₹ symbol despite IEEE-CIS's `TransactionAmt` currency never being confirmed by Vesta/Kaggle — a direct contradiction of this project's own `DATA_STRATEGY.md` philosophy; (5) README claimed "171 passing tests, 16 commits" against an actual 165-passing-plus-6-errors/17-commits reality.
+
+### Why It Happened
+(1) happened because the dev sandbox had pyarrow installed from an earlier OOM-debugging session (see the "Recurring pattern" entry above) and `requirements.txt` was never re-synced against it — so every test run "at home" passed, masking the gap. (2) was a known shortcut, explicitly flagged in its own code comment ("kept simple here"), that was never circled back to. (3) was a real, undisclosed architecture deviation. (4) was an unexamined assumption. (5) was a documentation reconciliation that was done once and not re-verified after later commits.
+
+### What Finally Worked
+All fixed directly: added `pyarrow==17.0.0` to `requirements.txt` and re-verified 171/171 passing from a genuinely fresh venv; loaded real entity transaction amounts into API state and computed real exposure in `GET /clusters/{id}`; added an explicit `503` with a clear message when the Investigation Agent call fails (e.g. missing API key) instead of an opaque 500; removed the ₹ symbol and added an explicit "currency unconfirmed" note everywhere exposure is displayed; corrected the README's numbers; and — rather than silently refactoring the frontend under time pressure, which risks introducing new untested bugs right before submission — documented the frontend/API architecture deviation explicitly in both frontend files' module docstrings and in a new "Known deviations" README section, matching this project's own standard of disclosure over silent inconsistency.
+
+### What Changed in the System
+`requirements.txt`, `backend/api.py` (`get_cluster`, `investigate` endpoints), `frontend/case_detail.py`, `frontend/dashboard.py`, `README.md`.
+
+### Guardrail / Evaluation Check
+No detection logic, thresholds, or evaluation results were touched — these were packaging/integration/documentation issues, not modeling ones. Re-ran the full test suite from both the dev environment and a clean venv after every fix.
+
+### Evidence
+Clean-venv run after the fix: `171 passed, 1 warning`. Before the fix (as caught externally): `165 passed, 6 errors` due to the missing pyarrow engine.
+
+**Commit:** `fix: pyarrow in requirements, real exposure calculation, explicit 503 on agent failure, remove unjustified currency symbol, reconcile README numbers, document frontend/API architecture deviation`
+
+**Issue/PR:** (none — fixed the same session the external review was received)
+
+---
+

@@ -17,6 +17,20 @@ on disk via backend/audit.py.
 
 ARCHITECTURE.md Section 5a: this file computes nothing new — score/exposure
 formatting still lives in backend/exposure.py and graph/scoring.py.
+
+*** KNOWN ARCHITECTURE DEVIATION (documented, not hidden) ***
+ARCHITECTURE.md Section 5a says the frontend "renders this view purely from
+GET /clusters/{id} and GET /cases/{id} API responses". This file does NOT do
+that — it reads the same parquet artifacts directly via pandas, and calls
+backend.audit / backend.exposure / policy.engine as plain Python functions
+rather than over HTTP. This was a pragmatic choice to avoid standing up and
+maintaining a running FastAPI server alongside Streamlit during a fast build,
+not a hidden shortcut. The computation logic itself is NOT duplicated —
+score/exposure formatting still lives in exactly one place (backend/exposure.py,
+graph/scoring.py), so a number shown here cannot drift from what those modules
+compute, even though the code path to get there differs from the API's.
+Routing this through actual HTTP calls to backend/api.py is a reasonable
+follow-up, not done here.
 """
 import pandas as pd
 import streamlit as st
@@ -68,7 +82,8 @@ with tab1:
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Coordinated Risk Score", f"{row['cluster_score'] * 100:.0f}")
-    c2.metric("Estimated At-Risk Exposure", f"₹{exposure['estimated_at_risk_exposure']:,.0f}")
+    c2.metric("Estimated At-Risk Exposure", f"{exposure['estimated_at_risk_exposure']:,.0f}")
+    st.caption("No currency symbol shown — IEEE-CIS's TransactionAmt currency was never confirmed by Vesta/Kaggle.")
     c3.metric("Cluster Size", int(row["size"]))
     st.caption(exposure["label"])
 
@@ -89,7 +104,9 @@ with tab1:
         except Exception as e:
             st.error(
                 f"Investigation Agent call failed: {e}\n\n"
-                "This is expected in an environment without a configured ANTHROPIC_API_KEY "
+                "This is expected in an environment without a configured API key for "
+                "your chosen provider (ANTHROPIC_API_KEY, or GROQ_API_KEY with "
+                "RAZORGUARD_LLM_PROVIDER=groq) "
                 "— see agents/investigate.py's module docstring. This is not a fabricated "
                 "failure message; it is the actual exception raised."
             )

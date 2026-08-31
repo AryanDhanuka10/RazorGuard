@@ -19,6 +19,16 @@ backend/exposure.py and graph/scoring.py so the displayed numbers can never
 drift from what was actually computed and logged. This file only reads
 already-computed columns and renders them.
 
+*** KNOWN ARCHITECTURE DEVIATION (documented, not hidden) ***
+Section 5a also says the frontend renders "purely from GET /clusters/{id}
+and GET /cases/{id} API responses" — this file does NOT do that; it reads
+the same parquet artifacts directly via pandas instead of calling the API
+over HTTP. Pragmatic choice for a fast build (avoids running a second
+server), not a hidden shortcut — see frontend/dashboard.py's module
+docstring for the full explanation. Computation still lives in exactly one
+place, so this deviation is about which code PATH reaches that
+computation, not about duplicating it.
+
 Financial-claim discipline (EVALUATION_PLAN.md Section 7): Risk Score !=
 Fraud Probability != Estimated At-Risk Exposure != Loss Prevented. "Loss
 prevented" is never used anywhere in this file.
@@ -82,8 +92,13 @@ with col1:
 with col2:
     st.markdown('<div class="rg-card">', unsafe_allow_html=True)
     st.markdown('<div class="rg-label">Estimated At-Risk Exposure</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="rg-score">₹{exposure["estimated_at_risk_exposure"]:,.0f}</div>', unsafe_allow_html=True)
-    st.caption("Estimated exposure — never \"loss prevented\". See backend/exposure.py for the formula and its inputs.")
+    st.markdown(f'<div class="rg-score">{exposure["estimated_at_risk_exposure"]:,.0f}</div>', unsafe_allow_html=True)
+    st.caption(
+        "Estimated exposure — never \"loss prevented\". IEEE-CIS's TransactionAmt currency "
+        "was never confirmed by Vesta/Kaggle, so no currency symbol is shown — this is a "
+        "figure in the dataset's own transaction-amount units. See backend/exposure.py "
+        "for the formula and its inputs."
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 with col3:
     st.markdown('<div class="rg-card">', unsafe_allow_html=True)
@@ -129,7 +144,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.markdown(
-    f'<div class="rg-evidence">Estimated exposure: ₹{exposure["estimated_at_risk_exposure"]:,.0f}</div>',
+    f'<div class="rg-evidence">Estimated exposure: {exposure["estimated_at_risk_exposure"]:,.0f}</div>',
     unsafe_allow_html=True,
 )
 

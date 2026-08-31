@@ -8,6 +8,7 @@ pandas==2.2.2
 numpy==1.26.4
 pyyaml==6.0.1
 pytest==8.2.0
+pyarrow==17.0.0
 
 # Day 1 (infra, once Step 5 of Day 1 passes) / Day 2 — API + DB
 fastapi==0.111.0
@@ -26,5 +27,6 @@ scikit-learn==1.4.2
 # Day 2/3 — dashboard
 streamlit==1.35.0
 
-# Day 4 — Investigation Agent
+# Day 4 — Investigation Agent (install whichever provider you'll actually use)
 anthropic==0.28.0
+groq==0.11.0

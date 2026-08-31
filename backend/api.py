@@ -38,7 +38,7 @@ app = FastAPI(title="RazorGuard API")
 # pipeline (parquet files / a proper feature store), not recompute them
 # per-request — this is intentionally the same data-loading pattern the
 # Streamlit frontend uses (frontend/app.py, frontend/case_detail.py).
-_state: dict = {"clusters": None, "scored": None, "edges": None, "rep": None, "risk": None, "audit_conn": None}
+_state: dict = {"clusters": None, "scored": None, "edges": None, "rep": None, "risk": None, "entity_amt": None, "audit_conn": None}
 
 
 def load_state(data_dir: str = "data") -> None:
@@ -47,6 +47,7 @@ def load_state(data_dir: str = "data") -> None:
     _state["edges"] = pd.read_parquet(f"{data_dir}/qualified_edges_full.parquet")
     _state["rep"] = pd.read_parquet(f"{data_dir}/entity_representative_view.parquet")
     _state["risk"] = pd.read_parquet(f"{data_dir}/entity_risk_scores.parquet")["risk_score"]
+    _state["entity_amt"] = pd.read_parquet(f"{data_dir}/entity_total_amt.parquet")["total_transaction_amt"]
     _state["audit_conn"] = get_connection()
 
 
@@ -90,9 +91,15 @@ def get_cluster(cluster_id: str):
         raise HTTPException(status_code=404, detail=f"cluster {cluster_id} not found")
     row = row.iloc[0]
     members = list(row["members"])
+    # Real cluster transaction value — this used to be hardcoded to 0.0, which
+    # meant this endpoint always reported zero exposure regardless of the
+    # cluster's actual value, while frontend/dashboard.py computed the real
+    # figure independently. That was a genuine drift between the API and the
+    # UI that ARCHITECTURE.md Section 5a explicitly says must never happen.
+    cluster_value = float(_state["entity_amt"].reindex(members).dropna().sum())
     exposure = compute_estimated_exposure(
         cluster_fraud_probability=float(row["transaction_risk"]),
-        cluster_transaction_value=0.0,  # caller may recompute with real amounts; kept simple here
+        cluster_transaction_value=cluster_value,
         recoverability_assumption=0.3,
     )
     return {
@@ -124,9 +131,23 @@ def investigate(cluster_id: str):
     if cluster_id not in set(_state["scored"]["cluster_id"]):
         raise HTTPException(status_code=404, detail=f"cluster {cluster_id} not found")
 
-    result = investigate_cluster(
-        cluster_id, _state["scored"], _state["edges"], _state["rep"], _state["risk"]
-    )
+    try:
+        result = investigate_cluster(
+            cluster_id, _state["scored"], _state["edges"], _state["rep"], _state["risk"]
+        )
+    except Exception as e:
+        # A missing/invalid API key (or any other agent-side failure) used to
+        # bubble up as an opaque 500. Surface it explicitly instead — this is
+        # the actual exception, not a fabricated message, but framed so a
+        # caller can tell "the agent isn't configured" from "something is
+        # actually broken".
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Investigation Agent call failed: {e}. This commonly means no valid "
+                "LLM API key is configured (see agents/investigate.py's module docstring)."
+            ),
+        )
     row = _state["scored"][_state["scored"]["cluster_id"] == cluster_id].iloc[0]
     policy_decision = decide(float(row["cluster_score"]))
 

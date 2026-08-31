@@ -6,7 +6,7 @@ Strictly defense-only: this system flags, prioritizes, and escalates coordinated
 
 ## Status: Days 0-5 built and verified against real data, with two honestly-documented gaps
 
-171 passing pytest tests. 16 commits, one per completed unit of work, each following real verification against the actual IEEE-CIS dataset (not synthetic placeholders) wherever the canonical docs called for real data.
+171 passing pytest tests (verified from a clean `pip install -r requirements.txt`, not just this dev environment). 17 commits, one per completed unit of work, each following real verification against the actual IEEE-CIS dataset (not synthetic placeholders) wherever the canonical docs called for real data.
 
 **What actually works, verified by running it:**
 - Full pipeline: canonicalization → pseudo-entity resolution → relationship-signal extraction → edge qualification → connected-components clustering → XGBoost risk model → normalized hybrid cluster scoring, all run against the real 590,540-transaction IEEE-CIS dataset
@@ -21,6 +21,14 @@ Strictly defense-only: this system flags, prioritizes, and escalates coordinated
 2. **Docker/Postgres were never stood up.** This sandbox has no Docker daemon. `backend/audit.py` uses SQLite as a documented substitute; the INSERT/SELECT-only guarantee is enforced at the application layer here, not by an actual Postgres role GRANT as `ARCHITECTURE.md` specifies. Apply the real DB-level restriction when deploying against actual Postgres.
 
 See `FAILURE_LOG.md` for 12 genuine engineering failures found and fixed (or, in two cases, diagnosed and honestly left unfixed post-freeze) while building this — including the Day 1 bridge-chaining bug that the architecture's own go/no-go checkpoint was designed to catch, and did.
+
+## Known deviations from the canonical docs (documented, not hidden)
+An external technical review of this repo caught these — all are now fixed except #3, which is disclosed instead:
+1. ~~`pyarrow` was missing from `requirements.txt`~~ — **fixed**. Verified by installing into a genuinely clean venv and running the full suite: 171 passed.
+2. ~~`GET /clusters/{id}` hardcoded exposure's transaction value to `0.0`~~ — **fixed**. Now computed from real entity transaction amounts, matching what the Streamlit views compute.
+3. **The frontend (`frontend/dashboard.py`, `frontend/case_detail.py`) reads pipeline artifacts directly instead of calling the API over HTTP**, contradicting `ARCHITECTURE.md` Section 5a's "renders purely from API responses." This is disclosed in both files' module docstrings rather than fixed — routing through real HTTP calls is a reasonable follow-up, not done here, to avoid a late refactor under submission time pressure. Computation itself is still centralized in one place either way (`backend/exposure.py`, `graph/scoring.py`), so numbers can't drift even though the code path differs from the documented one.
+4. ~~The dashboard displayed exposure with a ₹ symbol~~ — **fixed, removed**. IEEE-CIS's `TransactionAmt` currency was never confirmed by Vesta/Kaggle; showing any currency symbol was an unjustified assumption, which this project's own `DATA_STRATEGY.md` explicitly argues against doing.
+5. `POST /transactions/ingest` and `POST /graph/build` return `501 Not Implemented` — this API is a **read/investigation interface over precomputed batch-pipeline artifacts**, not a live orchestration API. Described that way here rather than implied otherwise.
 
 ## Canonical documents
 The following, in `docs/`, are the project's source of truth:
@@ -52,7 +60,13 @@ pip install -r requirements.txt
 ```
 Place `train_transaction.csv` and `train_identity.csv` (IEEE-CIS Fraud Detection, Kaggle) under `data/raw/`. Run the pipeline scripts in `data/`, `graph/`, and `ml/` in the order described in `docs/DAILY_BUILD_PLAN.md` to regenerate the parquet artifacts under `data/` and `ml/artifacts/` -- these are gitignored (large/derived) and must be regenerated locally.
 
-To actually run the Investigation Agent, set `ANTHROPIC_API_KEY` in your environment first.
+To actually run the Investigation Agent, set an API key first — either:
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...          # paid
+# or, free tier:
+export GROQ_API_KEY=gsk_...
+export RAZORGUARD_LLM_PROVIDER=groq
+```
 
 ## Running
 ```bash

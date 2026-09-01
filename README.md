@@ -17,10 +17,10 @@ Strictly defense-only: this system flags, prioritizes, and escalates coordinated
 - A seeded synthetic ring injector with a statically-enforced dev/test isolation guard
 
 **What's honestly incomplete — read before assuming this is production-ready:**
-1. **The Investigation Agent's live LLM call has never actually run.** This sandbox has no `ANTHROPIC_API_KEY`. Every other piece of `agents/` (evidence bundle construction, structured-output schema validation, the evaluation harness) is real, tested code — but nobody has seen a real model verdict for a real cluster yet. Run `agents/investigate.py` for real with a key before trusting its output.
-2. **Docker/Postgres were never stood up.** This sandbox has no Docker daemon. `backend/audit.py` uses SQLite as a documented substitute; the INSERT/SELECT-only guarantee is enforced at the application layer here, not by an actual Postgres role GRANT as `ARCHITECTURE.md` specifies. Apply the real DB-level restriction when deploying against actual Postgres.
+1. **The Investigation Agent's live LLM call has never actually run in this sandbox.** No API key is available here for either supported provider. Code and tests are real for both `anthropic` and `groq` (`agents/investigate.py`, `tests/test_investigate_providers.py`, mocked) — but nobody has seen a real model verdict for a real cluster yet. Set `ANTHROPIC_API_KEY` or (`GROQ_API_KEY` + `RAZORGUARD_LLM_PROVIDER=groq`, Groq has a free tier) and run it for real before trusting its output.
+2. **The Postgres path in `backend/audit.py` has never run against a real Postgres server.** No Postgres daemon is available in this sandbox. The dual-backend code (SQLite fallback / real Postgres via `DATABASE_URL`) and `scripts/postgres_setup.sql` (creates the table plus a restricted `razorguard_app` role with `GRANT INSERT, SELECT` only — the actual DB-level guarantee `ARCHITECTURE.md` Section 7 specifies) are real and syntax-checked, and `tests/test_postgres_audit.py` mocks `psycopg2.connect` to verify query shape and parameter binding. That is not the same as proving the real SQL runs against a real server — run `scripts/postgres_setup.sql` against a real free Postgres instance (Neon, Supabase) and re-run the test suite pointed at it before trusting this path.
 
-See `FAILURE_LOG.md` for 12 genuine engineering failures found and fixed (or, in two cases, diagnosed and honestly left unfixed post-freeze) while building this — including the Day 1 bridge-chaining bug that the architecture's own go/no-go checkpoint was designed to catch, and did.
+See `FAILURE_LOG.md` for the genuine engineering failures found along the way (see that file for the current count rather than a number hardcoded here) — including the Day 1 bridge-chaining bug that the architecture's own go/no-go checkpoint was designed to catch, and did.
 
 ## Known deviations from the canonical docs (documented, not hidden)
 An external technical review of this repo caught these — most are now fixed, the rest are disclosed instead:
@@ -61,7 +61,7 @@ tests/      171 pytest tests, including the never-weakened policy guardrail test
 ```bash
 pip install -r requirements.txt
 ```
-Place `train_transaction.csv` and `train_identity.csv` (IEEE-CIS Fraud Detection, Kaggle) under `data/raw/`. Run the pipeline scripts in `data/`, `graph/`, and `ml/` in the order described in `docs/DAILY_BUILD_PLAN.md` to regenerate the parquet artifacts under `data/` and `ml/artifacts/` -- these are gitignored (large/derived) and must be regenerated locally.
+The small precomputed pipeline artifacts needed to serve the dashboard/API are committed under `data/` (see `.gitignore` for exactly which ones — everything else, including the raw dataset, stays out). To regenerate everything from scratch: place `train_transaction.csv` and `train_identity.csv` (IEEE-CIS Fraud Detection, Kaggle) under `data/raw/` and run the pipeline modules in the order described in `docs/DAILY_BUILD_PLAN.md`.
 
 To actually run the Investigation Agent, set an API key first — either:
 ```bash
@@ -70,6 +70,12 @@ export ANTHROPIC_API_KEY=sk-ant-...          # paid
 export GROQ_API_KEY=gsk_...
 export RAZORGUARD_LLM_PROVIDER=groq
 ```
+
+To use real Postgres instead of the SQLite dev fallback for the audit log: get a free Postgres instance (Neon, Supabase), run `scripts/postgres_setup.sql` once with your admin/owner connection string (it creates the table and a restricted `razorguard_app` role), then set:
+```bash
+export DATABASE_URL=postgresql://razorguard_app:<password>@<host>/<db>
+```
+using the restricted role's credentials, not the admin ones.
 
 ## Running
 ```bash

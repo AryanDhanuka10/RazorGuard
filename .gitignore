@@ -3,6 +3,18 @@ data/raw/
 data/processed/
 *.csv
 *.parquet
+# Exception: the small, derived artifacts the deployed app actually serves
+# from (frontend/backend read these directly — see their read_parquet calls).
+# Everything else parquet-shaped (canonical_full.parquet, entity_map.parquet,
+# entities.parquet, and anything under data/raw/) stays excluded: large,
+# trivially regeneratable from the raw CSVs, and not needed to serve the app.
+!data/clusters_full.parquet
+!data/scored_clusters.parquet
+!data/qualified_edges_full.parquet
+!data/entity_representative_view.parquet
+!data/entity_total_amt.parquet
+!data/entity_risk_scores.parquet
+!data/baseline_c_scores.parquet
 
 # Python
 __pycache__/

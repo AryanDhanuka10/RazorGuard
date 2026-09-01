@@ -24,6 +24,8 @@ agent call mocked, not live.
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 
@@ -31,7 +33,18 @@ from backend.audit import get_connection, append_audit_entry, get_audit_trail
 from backend.exposure import compute_estimated_exposure
 from policy.engine import decide
 
-app = FastAPI(title="RazorGuard API")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Load state automatically on boot, so a deployed instance doesn't need
+    a manual load_state() call in a Python shell first — the earlier version
+    of this file required that, which works fine for local testing but is a
+    real gap for any actual deployment (Render, Railway, etc. just run
+    `uvicorn backend.api:app`, nothing more)."""
+    load_state()
+    yield
+
+
+app = FastAPI(title="RazorGuard API", lifespan=_lifespan)
 
 # In-memory application state for this reference implementation. A real
 # deployment would load these from the artifacts produced by the Day 1-3

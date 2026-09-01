@@ -78,7 +78,7 @@ row = scored[scored["cluster_id"] == selected_id].iloc[0]
 members = list(row["members"])
 
 exposure = compute_estimated_exposure(
-    cluster_fraud_probability=row["transaction_risk"],
+    model_risk_proxy=row["transaction_risk"],
     cluster_transaction_value=entity_amt.reindex(members).dropna().sum(),
     recoverability_assumption=0.3,  # documented scenario assumption, see backend/exposure.py
 )
@@ -96,8 +96,17 @@ with col2:
     st.caption(
         "Estimated exposure — never \"loss prevented\". IEEE-CIS's TransactionAmt currency "
         "was never confirmed by Vesta/Kaggle, so no currency symbol is shown — this is a "
-        "figure in the dataset's own transaction-amount units. See backend/exposure.py "
-        "for the formula and its inputs."
+        "figure in the dataset's own transaction-amount units."
+    )
+    # EVALUATION_PLAN.md Section 7 requires all three inputs shown wherever
+    # this number is displayed, not just the final figure — a bare number
+    # alone was flagged by external review as insufficient.
+    st.markdown(
+        f"**Calculation:** model risk proxy `{exposure['model_risk_proxy']:.3f}` "
+        f"(NOT a calibrated fraud probability — see backend/exposure.py) "
+        f"× cluster transaction value `{exposure['cluster_transaction_value']:,.0f}` "
+        f"× recoverability assumption `{exposure['recoverability_assumption']:.0%}` "
+        f"(a labeled scenario assumption, not a real operating figure)"
     )
     st.markdown("</div>", unsafe_allow_html=True)
 with col3:

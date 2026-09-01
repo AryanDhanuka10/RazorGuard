@@ -6,7 +6,7 @@ Strictly defense-only: this system flags, prioritizes, and escalates coordinated
 
 ## Status: Days 0-5 built and verified against real data, with two honestly-documented gaps
 
-171 passing pytest tests (verified from a clean `pip install -r requirements.txt`, not just this dev environment). 17 commits, one per completed unit of work, each following real verification against the actual IEEE-CIS dataset (not synthetic placeholders) wherever the canonical docs called for real data.
+171 passing pytest tests (verified from a clean `pip install -r requirements.txt`, not just this dev environment). A commit per completed unit of work, each following real verification against the actual IEEE-CIS dataset (not synthetic placeholders) wherever the canonical docs called for real data — see `git log --oneline` for the current count rather than a number hardcoded here, which drifted out of date at least once already.
 
 **What actually works, verified by running it:**
 - Full pipeline: canonicalization → pseudo-entity resolution → relationship-signal extraction → edge qualification → connected-components clustering → XGBoost risk model → normalized hybrid cluster scoring, all run against the real 590,540-transaction IEEE-CIS dataset
@@ -23,12 +23,15 @@ Strictly defense-only: this system flags, prioritizes, and escalates coordinated
 See `FAILURE_LOG.md` for 12 genuine engineering failures found and fixed (or, in two cases, diagnosed and honestly left unfixed post-freeze) while building this — including the Day 1 bridge-chaining bug that the architecture's own go/no-go checkpoint was designed to catch, and did.
 
 ## Known deviations from the canonical docs (documented, not hidden)
-An external technical review of this repo caught these — all are now fixed except #3, which is disclosed instead:
+An external technical review of this repo caught these — most are now fixed, the rest are disclosed instead:
 1. ~~`pyarrow` was missing from `requirements.txt`~~ — **fixed**. Verified by installing into a genuinely clean venv and running the full suite: 171 passed.
-2. ~~`GET /clusters/{id}` hardcoded exposure's transaction value to `0.0`~~ — **fixed**. Now computed from real entity transaction amounts, matching what the Streamlit views compute.
-3. **The frontend (`frontend/dashboard.py`, `frontend/case_detail.py`) reads pipeline artifacts directly instead of calling the API over HTTP**, contradicting `ARCHITECTURE.md` Section 5a's "renders purely from API responses." This is disclosed in both files' module docstrings rather than fixed — routing through real HTTP calls is a reasonable follow-up, not done here, to avoid a late refactor under submission time pressure. Computation itself is still centralized in one place either way (`backend/exposure.py`, `graph/scoring.py`), so numbers can't drift even though the code path differs from the documented one.
-4. ~~The dashboard displayed exposure with a ₹ symbol~~ — **fixed, removed**. IEEE-CIS's `TransactionAmt` currency was never confirmed by Vesta/Kaggle; showing any currency symbol was an unjustified assumption, which this project's own `DATA_STRATEGY.md` explicitly argues against doing.
-5. `POST /transactions/ingest` and `POST /graph/build` return `501 Not Implemented` — this API is a **read/investigation interface over precomputed batch-pipeline artifacts**, not a live orchestration API. Described that way here rather than implied otherwise.
+2. ~~`GET /clusters/{id}` hardcoded exposure's transaction value to `0.0`~~ — **fixed**, with a real regression test (`test_cluster_exposure_uses_real_nonzero_transaction_amount`) that independently recomputes the expected value rather than just checking the key exists.
+3. ~~The exposure formula's risk input was misleadingly named `cluster_fraud_probability`~~ — **fixed**. `EVALUATION_PLAN.md` Section 7 explicitly distinguishes Risk Score from Fraud Probability, and the code was violating that distinction even though the surrounding prose respected it: the actual input is `transaction_risk`, a mean of per-transaction model scores, not a demonstrated calibrated probability that a cluster is fraudulent. Renamed to `model_risk_proxy` everywhere (`backend/exposure.py`, API, both frontends), with the label now saying explicitly that it is not a calibrated probability.
+4. **The frontend (`frontend/dashboard.py`, `frontend/case_detail.py`) reads pipeline artifacts directly instead of calling the API over HTTP**, contradicting `ARCHITECTURE.md` Section 5a's "renders purely from API responses." Rather than silently leaving the canonical doc factually wrong, an implementation note is now appended directly to that section in `docs/ARCHITECTURE.md`, alongside (not replacing) the original design intent — so both what was intended and what was actually built are visible together.
+5. ~~The dashboard displayed exposure with a ₹ symbol~~ — **fixed, removed**. IEEE-CIS's `TransactionAmt` currency was never confirmed by Vesta/Kaggle.
+6. ~~Exposure's three inputs weren't all visibly shown, only the final figure~~ — **fixed**. Both frontend views now show the model risk proxy, cluster transaction value, and recoverability assumption alongside the result, per `EVALUATION_PLAN.md` Section 7.
+7. ~~Groq provider support had no tests~~ — **fixed**. `tests/test_investigate_providers.py` mocks both SDK clients and covers provider dispatch, response-shape parsing for each provider, invalid-provider handling, and malformed/schema-invalid JSON — all without needing a live key. This does not prove the real services behave as mocked; see `agents/investigate.py`'s docstring.
+8. `POST /transactions/ingest` and `POST /graph/build` return `501 Not Implemented` — this API is a **read/investigation interface over precomputed batch-pipeline artifacts**, not a live orchestration API. Described that way here rather than implied otherwise.
 
 ## Canonical documents
 The following, in `docs/`, are the project's source of truth:

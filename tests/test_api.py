@@ -44,6 +44,32 @@ def test_get_cluster_detail_matches_list_endpoint(client):
     assert "label" in detail["estimated_exposure"]
 
 
+@pytest.mark.skipif(not DATA_AVAILABLE, reason="requires real pipeline artifacts under data/")
+def test_cluster_exposure_uses_real_nonzero_transaction_amount(client):
+    """Regression test for the exposure=0.0 bug (external review): checking
+    only that the 'estimated_exposure' key exists would still pass if the
+    value were always zero, which is exactly what the original bug did. This
+    asserts the actual numbers are real and nonzero, and cross-checks the
+    transaction value against an independent computation from the same
+    source parquet the API reads, not just the API's own arithmetic."""
+    import pandas as pd
+
+    top = client.get("/clusters?limit=1").json()[0]
+    detail = client.get(f"/clusters/{top['cluster_id']}").json()
+    exposure = detail["estimated_exposure"]
+
+    assert exposure["cluster_transaction_value"] > 0
+    assert exposure["estimated_at_risk_exposure"] > 0
+
+    # Independently recompute the expected transaction value from the raw
+    # entity_total_amt parquet + this cluster's real member list, rather than
+    # trusting the API's own internal arithmetic.
+    entity_amt = pd.read_parquet("data/entity_total_amt.parquet")["total_transaction_amt"]
+    members = detail["members"]
+    expected_value = float(entity_amt.reindex(members).dropna().sum())
+    assert exposure["cluster_transaction_value"] == pytest.approx(expected_value)
+
+
 def test_get_cluster_404_for_unknown_id(client):
     if not DATA_AVAILABLE:
         pytest.skip("requires real pipeline artifacts under data/")

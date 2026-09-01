@@ -75,7 +75,7 @@ with tab1:
     members = list(row["members"])
 
     exposure = compute_estimated_exposure(
-        cluster_fraud_probability=float(row["transaction_risk"]),
+        model_risk_proxy=float(row["transaction_risk"]),
         cluster_transaction_value=float(entity_amt.reindex(members).dropna().sum()),
         recoverability_assumption=0.3,
     )
@@ -86,6 +86,13 @@ with tab1:
     st.caption("No currency symbol shown — IEEE-CIS's TransactionAmt currency was never confirmed by Vesta/Kaggle.")
     c3.metric("Cluster Size", int(row["size"]))
     st.caption(exposure["label"])
+    # EVALUATION_PLAN.md Section 7 requires all three inputs shown wherever
+    # this number is displayed, not just the final figure.
+    st.markdown(
+        f"**Calculation:** model risk proxy `{exposure['model_risk_proxy']:.3f}` "
+        f"× cluster transaction value `{exposure['cluster_transaction_value']:,.0f}` "
+        f"× recoverability assumption `{exposure['recoverability_assumption']:.0%}`"
+    )
 
     if st.button("Investigate (calls the live Investigation Agent)"):
         try:

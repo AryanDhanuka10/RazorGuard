@@ -98,7 +98,7 @@ def get_cluster(cluster_id: str):
     # UI that ARCHITECTURE.md Section 5a explicitly says must never happen.
     cluster_value = float(_state["entity_amt"].reindex(members).dropna().sum())
     exposure = compute_estimated_exposure(
-        cluster_fraud_probability=float(row["transaction_risk"]),
+        model_risk_proxy=float(row["transaction_risk"]),
         cluster_transaction_value=cluster_value,
         recoverability_assumption=0.3,
     )

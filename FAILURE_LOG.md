@@ -751,3 +751,33 @@ Clean-venv run after the fix: `171 passed, 1 warning`. Before the fix (as caught
 
 ---
 
+## Second external review: transaction_risk was mislabeled as a calibrated fraud probability
+
+**Day/date:** post-Day-5, 2026-08-31
+
+**Area:** Financial Semantics / API
+
+### Problem
+A second, more careful external review found that the first review's exposure fix (real transaction value instead of `0.0`) had not addressed a deeper issue: `backend/exposure.py`'s parameter was named `cluster_fraud_probability`, and the caller passed `transaction_risk` — a mean of per-transaction XGBoost predicted probabilities across a cluster's members. Averaging per-transaction model scores does not, by itself, produce a calibrated "probability that this coordinated cluster is fraudulent." `EVALUATION_PLAN.md` Section 7 explicitly states "Risk Score != Fraud Probability" — the code was violating its own project's stated discipline even though the surrounding prose respected it.
+
+### Why It Happened
+The first review's fix focused narrowly on the reported symptom (exposure always zero) and didn't re-examine whether the *semantics* of the other inputs were correct — a classic case of fixing the specific complaint without re-auditing the surrounding code for the same class of problem.
+
+### What Finally Worked
+Renamed the parameter (and its key in the returned dict) from `cluster_fraud_probability` to `model_risk_proxy` throughout `backend/exposure.py`, `backend/api.py`, and both frontend files, and updated the label text to say explicitly this is not a calibrated probability. This is "Option A" (honest relabeling) rather than "Option B" (building and justifying an actually-calibrated cluster-level probability model) — there is no calibration evidence to support Option B, and claiming one without that evidence would be a bigger problem than the mislabeling itself.
+
+### What Changed in the System
+`backend/exposure.py` (parameter rename + expanded docstring explaining why), `backend/api.py` and both frontend files (call-site updates), `tests/test_exposure.py` (added a regression test asserting the result never exposes a `cluster_fraud_probability` key and the label explicitly disclaims calibration). Also, in the same pass: a real regression test for the exposure-value bug itself (checking actual nonzero values and cross-referencing an independent computation, not just key presence — the first fix's test was too weak to have caught a regression); an honest implementation note appended to `docs/ARCHITECTURE.md` Section 5a rather than leaving a FINAL/CANONICAL doc describing a frontend architecture that doesn't exist; both exposure inputs now shown explicitly in the UI, not just the final number; mocked provider-dispatch tests for the Anthropic/Groq split added; the fragile hardcoded commit count removed from the README entirely rather than fixed again.
+
+### Guardrail / Evaluation Check
+No detection logic touched. This is a labeling/semantics fix in the financial-claim layer, which is exactly where `EVALUATION_PLAN.md` Section 7's discipline is supposed to be enforced — and where it had, in fact, briefly lapsed.
+
+### Evidence
+Full suite from a clean venv after this fix: 181 passed (171 prior + 8 new provider-dispatch tests + 2 new regression tests).
+
+**Commit:** `fix: surgical correction pass per second external review - rename cluster_fraud_probability to model_risk_proxy`
+
+**Issue/PR:** (none — fixed the same session the second review was received)
+
+---
+

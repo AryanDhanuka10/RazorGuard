@@ -34,7 +34,9 @@ follow-up, not done here.
 """
 import pandas as pd
 import streamlit as st
-
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from backend.audit import get_connection, append_audit_entry, get_audit_trail
 from backend.exposure import compute_estimated_exposure
 from policy.engine import decide

@@ -64,10 +64,10 @@ If verdict is "insufficient_evidence", "claims" may be empty."""
 
 DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-4-6",
-    # llama-3.3-70b-versatile is a solid free-tier Groq default for this kind
+    # qwen/qwen3.8-27b is a solid free-tier Groq default for this kind
     # of structured-reasoning task; swap for another Groq-hosted model name
     # if you hit rate limits or want to compare quality.
-    "groq": "llama-3.3-70b-versatile",
+    "groq": "qwen/qwen3.8-27b",
 }
 
 

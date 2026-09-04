@@ -12,6 +12,14 @@ from backend/ API responses (or, until the backend exists, directly from the
 same parquet artifacts the backend will eventually read from) and displays
 them — no score-to-percentage or exposure formatting logic lives here.
 """
+import sys
+from pathlib import Path
+
+# Not strictly needed today (this file has no backend.* imports), but added
+# for consistency with dashboard.py/case_detail.py and to future-proof
+# against that changing.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import pandas as pd
 import streamlit as st
 

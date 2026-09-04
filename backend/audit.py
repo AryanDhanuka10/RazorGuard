@@ -11,23 +11,48 @@ Two backends, selected automatically by whether DATABASE_URL is set:
     restricted role's credentials for the running application, NOT the
     admin ones. This is the actual DB-level permission guarantee
     ARCHITECTURE.md Section 7 specifies.
-  - SQLite (DATABASE_URL unset): local-dev fallback. No per-role GRANT
-    system exists in SQLite, so the INSERT/SELECT-only guarantee there is
-    enforced only at the APPLICATION layer (this module simply exposes no
-    update/delete function) and by pytest, not by the database itself.
+  - SQLite (DATABASE_URL unset, or get_connection(force_sqlite=True)):
+    local-dev fallback. No per-role GRANT system exists in SQLite, so the
+    INSERT/SELECT-only guarantee there is enforced only at the APPLICATION
+    layer (this module simply exposes no update/delete function) and by
+    pytest, not by the database itself.
+
+*** A REAL BUG FOUND IN PRACTICE, AND HOW IT'S FIXED HERE ***
+Every function in this module originally re-checked `DATABASE_URL` in the
+environment independently to decide which SQL dialect to use, INSTEAD of
+checking what kind of connection object it was actually given. With
+DATABASE_URL set globally in a shell (e.g. while testing the live Postgres
+path), tests/test_audit.py's fixture -- which explicitly builds a
+tmp_path-based SQLite connection expecting an isolated, disposable database
+-- was silently redirected to a REAL Postgres instance instead, because
+get_connection() ignored its own db_path argument whenever DATABASE_URL was
+present. That's a real production-database contamination risk from running
+tests, not just a test-isolation nicety, and it was caught by a user running
+the suite with DATABASE_URL configured for other work.
+
+Fixed two ways:
+  1. get_connection() now accepts `force_sqlite: bool = False` so a caller
+     can explicitly demand the SQLite fallback regardless of DATABASE_URL.
+     tests/test_audit.py's fixture now always passes force_sqlite=True.
+  2. append_audit_entry() and get_audit_trail() now detect which dialect to
+     use by inspecting the CONNECTION OBJECT they were actually handed
+     (_is_postgres_connection), not by re-reading the environment variable a
+     second and third time. This closes the whole bug class: even if
+     DATABASE_URL is set, a function that's handed a real sqlite3 connection
+     will now always use SQLite syntax against it, and vice versa --
+     correctness follows the object you have, not a global you don't control.
 
 *** VERIFICATION STATUS ***
 The SQLite path is genuinely exercised by tests/test_audit.py (real SQLite
-file, real INSERT/SELECT). The Postgres path's SQL has been checked for
-syntax correctness and psycopg2's API used correctly, but has NOT been run
-against a real Postgres server in this sandbox -- there is no Postgres
-daemon available here (confirmed: no `psql` binary, no server process).
-tests/test_postgres_audit.py mocks psycopg2.connect to verify the query
-shapes and parameter binding are correct, which is NOT the same as proving
-the real SQL runs against a real server. Run it for real against your own
-Postgres instance (Neon, Supabase, or any Postgres) before trusting it.
+file, real INSERT/SELECT), now isolated from DATABASE_URL via force_sqlite.
+tests/test_postgres_audit.py mocks psycopg2.connect to verify query shape.
+tests/test_postgres_audit_live.py (opt-in, skipped unless DATABASE_URL is
+actually set) verifies real behavior against a real server, including that
+the restricted role's DELETE is genuinely denied -- this is the first real,
+non-mocked verification of the Postgres path, contributed by a user actually
+running this against their own free Postgres instance.
 
-No UPDATE/DELETE function exists in this module AT ALL, for either backend —
+No UPDATE/DELETE function exists in this module AT ALL, for either backend --
 not merely unused, mirroring the "no PUT/DELETE /audit* route" rule in
 ARCHITECTURE.md Section 3. Hash-chaining is NOT implemented (documented
 scope cut, ARCHITECTURE.md Section 7) -- this log is append-only, never
@@ -40,17 +65,34 @@ import os
 from datetime import datetime, timezone
 
 
-def _using_postgres() -> bool:
-    return bool(os.environ.get("DATABASE_URL"))
+def _using_postgres(force_sqlite: bool = False) -> bool:
+    return bool(os.environ.get("DATABASE_URL")) and not force_sqlite
 
 
-def get_connection(db_path: str = "razorguard_audit.db"):
+def _is_postgres_connection(conn) -> bool:
+    """Detects dialect from the CONNECTION OBJECT itself, not the
+    environment -- see module docstring for why this matters. Uses
+    isinstance against psycopg2's real connection class (rather than
+    checking type(conn).__module__ directly) so that a MagicMock built with
+    spec=psycopg2.extensions.connection in tests is correctly detected too
+    -- MagicMock fakes isinstance checks when given a spec, which a raw
+    module-name string comparison would not have honored."""
+    try:
+        import psycopg2.extensions
+
+        return isinstance(conn, psycopg2.extensions.connection)
+    except ImportError:
+        return False
+
+
+def get_connection(db_path: str = "razorguard_audit.db", force_sqlite: bool = False):
     """
     Returns a connection. If DATABASE_URL is set, connects to Postgres
-    (db_path is ignored). Otherwise falls back to the local SQLite file at
-    db_path -- the dev-time substitute, not the canonical design.
+    (db_path is ignored) -- UNLESS force_sqlite=True, in which case the
+    SQLite fallback is used regardless of DATABASE_URL. See module docstring
+    for why force_sqlite exists.
     """
-    if _using_postgres():
+    if _using_postgres(force_sqlite):
         import psycopg2
 
         conn = psycopg2.connect(os.environ["DATABASE_URL"])
@@ -95,7 +137,7 @@ def append_audit_entry(
     INSERT, no update path exists anywhere in this file. Returns the new row id."""
     ts = datetime.now(timezone.utc)
 
-    if _using_postgres():
+    if _is_postgres_connection(conn):
         # JSONB columns take dicts directly via psycopg2's adapter -- no
         # manual json.dumps needed, and querying later gets back real dicts,
         # not strings that need re-parsing (see get_audit_trail).
@@ -151,7 +193,7 @@ def get_audit_trail(conn, case_id: str) -> list[dict]:
         "agent_output", "policy_decision", "human_action",
     ]
 
-    if _using_postgres():
+    if _is_postgres_connection(conn):
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, timestamp, case_id, model_risk_outputs, evidence_used, agent_output, "

@@ -64,9 +64,6 @@ If verdict is "insufficient_evidence", "claims" may be empty."""
 
 DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-4-6",
-    # qwen/qwen3.8-27b is a solid free-tier Groq default for this kind
-    # of structured-reasoning task; swap for another Groq-hosted model name
-    # if you hit rate limits or want to compare quality.
     "groq": "qwen/qwen3.8-27b",
 }
 
@@ -88,9 +85,7 @@ def _parse_json_response(text: str) -> dict:
 
 
 def _call_anthropic(evidence_bundle: dict, model: str) -> InvestigationResult:
-    import anthropic  # imported here, not at module level, so this file can
-    # still be imported and its non-network functions tested without the
-    # anthropic package needing a configured client.
+    import anthropic
 
     client = anthropic.Anthropic()
     response = client.messages.create(
@@ -104,13 +99,13 @@ def _call_anthropic(evidence_bundle: dict, model: str) -> InvestigationResult:
 
 
 def _call_groq(evidence_bundle: dict, model: str) -> InvestigationResult:
-    from groq import Groq  # imported here for the same reason as anthropic above
+    from groq import Groq
 
-    client = Groq()  # reads GROQ_API_KEY from the environment
+    client = Groq()
     response = client.chat.completions.create(
         model=model,
         max_tokens=1000,
-        response_format={"type": "json_object"},  # ask Groq to guarantee valid JSON
+        response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_user_message(evidence_bundle)},
@@ -123,22 +118,24 @@ def _call_groq(evidence_bundle: dict, model: str) -> InvestigationResult:
 def call_investigation_agent(
     evidence_bundle: dict, model: str | None = None, provider: str | None = None
 ) -> InvestigationResult:
-    """
-    *** NOT EXECUTED IN THIS SANDBOX — see module docstring. ***
-    Requires a real API key for whichever provider is selected.
-
-    provider: "anthropic" or "groq". Defaults to the RAZORGUARD_LLM_PROVIDER
-    environment variable, or "anthropic" if that's unset — set
-    RAZORGUARD_LLM_PROVIDER=groq to use Groq's free tier without touching code.
-    """
     provider = provider or os.environ.get("RAZORGUARD_LLM_PROVIDER", "anthropic")
     model = model or DEFAULT_MODELS.get(provider)
-    if provider == "anthropic":
-        return _call_anthropic(evidence_bundle, model)
-    elif provider == "groq":
-        return _call_groq(evidence_bundle, model)
-    else:
+    if provider not in ("anthropic", "groq"):
         raise ValueError(f"unknown provider {provider!r} — expected 'anthropic' or 'groq'")
+
+    try:
+        if provider == "anthropic":
+            return _call_anthropic(evidence_bundle, model)
+        else:
+            return _call_groq(evidence_bundle, model)
+    except SchemaValidationError:
+        raise
+    except Exception as e:
+        raise RuntimeError(
+            f"LLM call failed using provider={provider!r}, model={model!r} "
+            f"(resolved from RAZORGUARD_LLM_PROVIDER={os.environ.get('RAZORGUARD_LLM_PROVIDER')!r} "
+            f"in this process's environment). Original error: {e}"
+        ) from e
 
 
 def investigate_cluster(
@@ -150,11 +147,7 @@ def investigate_cluster(
     model: str | None = None,
     provider: str | None = None,
 ) -> InvestigationResult:
-    """Full pipeline: build the deterministic evidence bundle, then call the
-    agent. This is the function backend/ actually calls
-    (POST /clusters/{id}/investigate)."""
     bundle = build_evidence_bundle(
         cluster_id, scored_clusters, qualified_edges, entity_representative_view, entity_risk_scores
     )
     return call_investigation_agent(bundle, model=model, provider=provider)
-

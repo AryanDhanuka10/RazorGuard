@@ -1,7 +1,5 @@
 # RazorGuard requirements
 # Grouped by the day/component that first needs them (ARCHITECTURE.md Section 2).
-# Nothing here is installed until the task that needs it actually runs —
-# declaring the full manifest now is a Day 0 bootstrap step, not an implementation shortcut.
 
 # Day 1 — ingestion, canonicalization, pseudo-entity resolution, tests
 pandas==2.2.2
@@ -28,5 +26,9 @@ scikit-learn==1.4.2
 streamlit==1.35.0
 
 # Day 4 — Investigation Agent (install whichever provider you'll actually use)
-anthropic==0.28.0
-groq==0.11.0
+# Pinned to versions confirmed to avoid the "Client.__init__() got an
+# unexpected keyword argument 'proxies'" error — a real dependency conflict
+# where older SDK versions pass a `proxies` kwarg to httpx that newer httpx
+# releases removed.
+anthropic==1.3.0
+groq==1.7.0

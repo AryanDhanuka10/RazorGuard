@@ -32,11 +32,23 @@ compute, even though the code path to get there differs from the API's.
 Routing this through actual HTTP calls to backend/api.py is a reasonable
 follow-up, not done here.
 """
+import sys
+from pathlib import Path
+
+# Make the project root importable regardless of how/where streamlit is
+# launched from. Streamlit puts the SCRIPT's own directory (frontend/) on
+# sys.path, not the project root — so `from backend.audit import ...` below
+# fails with "No module named 'backend'" unless the root is added explicitly.
+# This bit me for real: it happened to work in one dev environment (whose
+# shell/PYTHONPATH state I didn't fully control) but broke immediately for
+# a user running `streamlit run frontend/dashboard.py` from a fresh venv —
+# exactly the kind of environment-dependent assumption that shouldn't have
+# been left unfixed in the first place.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import pandas as pd
 import streamlit as st
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from backend.audit import get_connection, append_audit_entry, get_audit_trail
 from backend.exposure import compute_estimated_exposure
 from policy.engine import decide

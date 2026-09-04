@@ -33,6 +33,14 @@ Financial-claim discipline (EVALUATION_PLAN.md Section 7): Risk Score !=
 Fraud Probability != Estimated At-Risk Exposure != Loss Prevented. "Loss
 prevented" is never used anywhere in this file.
 """
+import sys
+from pathlib import Path
+
+# See frontend/dashboard.py's identical comment: streamlit puts this
+# script's own directory on sys.path, not the project root, so importing
+# backend.* fails unless the root is added explicitly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import pandas as pd
 import streamlit as st
 
